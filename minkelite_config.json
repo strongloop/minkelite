@@ -1,10 +1,11 @@
 {
-  "in_memory": true,
+  "dev_mode": false,
+  "in_memory": false,
   "dir_path": "./",
   "db_name": ":memory:",
-  "stale_minutes": 20,
-  "chart_minutes": 20,
-  "pruning_interval_seconds": 10,
+  "stale_minutes": 2880,
+  "chart_minutes": 1440,
+  "pruning_interval_seconds": 600,
   "tables":[
   	{
   		"name": "raw_trace",

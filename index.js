@@ -11,6 +11,8 @@ module.exports = MinkeLite;
 var CONFIG = require('./minkelite_config.json');
 var ago = require("ago");
 var async = require("async");
+var bodyParser = require('body-parser');
+var express = require('express');
 var fs = require("fs");
 var md5 = require('MD5');
 var sqlite3 = require("sqlite3");
@@ -18,11 +20,7 @@ var util = require('util');
 var xtend = require('xtend');
 var zlib = require('zlib');
 
-var express = require('express');
-var formidable = require('formidable');
-
-var DEV_MODE = true;
-var EXTRA_WRITE_COUNT_IN_DEV_MODE = 0;
+var EXTRA_WRITE_COUNT_IN_DEVMODE = 0;
 var $$$ = '|';
 var traceNotFoundGzipped = null;
 zlib.gzip("The trace file not found.",function(err, buf){traceNotFoundGzipped = buf});
@@ -31,6 +29,7 @@ function MinkeLite(config) {
   if (!(this instanceof MinkeLite)) return new MinkeLite(config)
   this.config = config ? xtend(CONFIG, config) : CONFIG;
   // set production default config parameters
+  this.config.dev_mode = this.config.dev_mode || false;
   this.config.dir_path = this.config.dir_path || "./";
   this.config.db_name = this.config.db_name || ":memory:";
   this.config.sqlite3_verbose = this.config.sqlite3_verbose || false;
@@ -40,11 +39,12 @@ function MinkeLite(config) {
   this.config.pruning_interval_seconds = this.config.pruning_interval_seconds || 600;
   this.config.start_server = this.config.start_server || false;
   this.config.server_port = this.config.server_port || 8103;
+  this.config.max_transaction_count = this.config.max_transaction_count || 20;
 
   this._init_db();
   this._init_server();
   this.pruner = setInterval(deleteAllStaleRecords.bind([this,this.config.stale_minutes,"minute"]), this.config.pruning_interval_seconds*1000);
-  if ( DEV_MODE ) console.log(this);
+  if ( this.config.dev_mode ) console.log(this);
 }
 
 MinkeLite.prototype.shutdown = function (cb) {
@@ -71,10 +71,17 @@ MinkeLite.prototype.start_server = function () {
   this.express_server = this.express_app.listen(this.config.server_port);
 }
 
+MinkeLite.prototype.start_proxy = function () {
+  this.proxy = express()
+    .post("/results/:version", handle)
+    .put("/results/:version", handle)
+  this.proxy_server = this.proxy.listen(9090);
+}
+
 MinkeLite.prototype._init_db = function () {
   this.db_being_initialized = false;
   this.db_path = this.config.in_memory ? this.config.db_name : this.config.dir_path+this.config.db_name;
-  this.db_exists = this.config.in_memory ? false : fs.db_existsSync(this.db_path);
+  this.db_exists = this.config.in_memory ? false : fs.existsSync(this.db_path);
   this.db = new sqlite3.Database(this.db_path);
   if ( this.db_exists ) return;
   this.db_being_initialized = true;
@@ -88,17 +95,21 @@ MinkeLite.prototype._init_db = function () {
 }
 
 MinkeLite.prototype._init_server = function () {
+  var jsonParser = bodyParser.json({inflate:true, limit:10000000,
+    verify: function(req, res, buf, encoding){req.body = JSON.parse(buf);}});
   this.express_app = express()
-  .post("/post_raw_pieces",
-    function(req,res){postRawPieces(this,req,res)}.bind(this))
-  .get("/get_raw_pieces/:pfkey/:fun/:met/:mon/:tra/:wat",
-    function(req,res){getRawPieces(this,req,res)}.bind(this))
-  .get("/get_raw_memory_pieces/:act/:filter/:host/:pid",
-    function(req,res){getRawMemoryPieces(this,req,res)}.bind(this))
-  .get("/get_meta_transactions/:act",
-    function(req,res){getMetaTransactions(this,req,res)}.bind(this))
-  .get("/get_transaction/:act/:transaction/:filter/:host/:pid",
-    function(req,res){getTransaction(this,req,res)}.bind(this));
+    .post("/post_raw_pieces", jsonParser,
+      function(req,res){postRawPieces(this,req,res)}.bind(this))
+    .post("/results/1.0.1", jsonParser,
+      function(req,res){postRawPieces(this,req,res)}.bind(this))
+    .get("/get_raw_pieces/:pfkey/:fun/:met/:mon/:tra/:wat",
+      function(req,res){getRawPieces(this,req,res)}.bind(this))
+    .get("/get_raw_memory_pieces/:act/:filter/:host/:pid",
+      function(req,res){getRawMemoryPieces(this,req,res)}.bind(this))
+    .get("/get_meta_transactions/:act",
+      function(req,res){getMetaTransactions(this,req,res)}.bind(this))
+    .get("/get_transaction/:act/:transaction/:filter/:host/:pid",
+      function(req,res){getTransaction(this,req,res)}.bind(this));
   this.express_server = this.config.start_server ? this.express_app.listen(this.config.server_port) : null;
 };
 
@@ -107,7 +118,6 @@ function getRawPieces(self,req,res){
   var pfkey = decodeURIComponent(req.params.pfkey);
   var db = self.db;
   db.serialize(function() {
-    // var chartTime = ago(self.config.chart_minutes, "minutes").toString();
     var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey);
     db.get(query, function(err,row){
       var trace = traceNotFoundGzipped;
@@ -249,10 +259,12 @@ function getTransaction(self,req,res){
     var query = null;
     var chartTime = ago(self.config.chart_minutes, "minutes").toString();
     if ( host && pid && host.length>0 && host!="0" && pid>0 ) {
-      var baseQueryWithHostPid = "SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND host='%s' AND pid=%s AND ts > %s ORDER BY max DESC LIMIT 20";
+      var baseQueryWithHostPid = "SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND host='%s' AND pid=%s AND ts > %s ORDER BY max DESC LIMIT "
+        +self.config.max_transaction_count.toString();
       query = util.format(baseQueryWithHostPid, act, tran, host, pid, chartTime);
     } else {
-      var baseQueryWithoutHostPid = "SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND ts > %s ORDER BY max DESC LIMIT 20";
+      var baseQueryWithoutHostPid = "SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND ts > %s ORDER BY max DESC LIMIT "
+        +self.config.max_transaction_count.toString();
       query = util.format(baseQueryWithoutHostPid, act, tran, chartTime);
     }
     db.all(query,getRowsTransactions);
@@ -260,60 +272,51 @@ function getTransaction(self,req,res){
 };
 
 function postRawPieces(self,req,res){
-  var form = new formidable.IncomingForm();
-  form.parse(req, function(err, fields, files) {
-    var traceGz = new Buffer(fields.file,'base64');
-    // console.log("postRawPieces :", traceGz.constructor.name, traceGz.toString().length, traceGz.toString('hex').substring(0,200),'...');
-    self._write_raw_trace(fields.act, traceGz);
-    res.end();
-  });
+  var act = req.headers['concurix-api-key'];
+  self._write_raw_trace(act, req.body);
+  res.writeHead(202);
+  res.end();
 };
 
-MinkeLite.prototype._write_raw_trace = function (act, traceGz) {
+MinkeLite.prototype._write_raw_trace = function (act, trace) {
   exitIfNotReady(this, "_write_raw_trace");
   try {
-    populateMinkeTables(this, act, traceGz);
+    populateMinkeTables(this, act, trace);
   } catch (e) {
     console.log("*** Ignoring a duplicate insert for act :", act, e);
   }
 };
 
-function populateMinkeTables(self, act, traceGz){
-  zlib.unzip(traceGz, function(zlibErr, buf){
-    if( zlibErr && DEV_MODE ) console.log(zlibErr);
-    if(! zlibErr && buf ) {
-      var trace = JSON.parse(buf.toString('utf-8'));
-      var pfkey = compilePfkey(act,trace);
-      var ts = trace.metadata.timestamp;
-      if ( DEV_MODE ) ts = Date.now();
-      self.db.serialize(function() {
-        populateRawTraceTable(self, act, traceGz, pfkey, ts);
-        populateRawMemoryPieces(self, act, trace, pfkey, ts);
-        populateRawTransactions(self, act, trace, pfkey, ts);
-        populateMetaTransactions(self, act, trace, pfkey, ts);
-      });
-    };
+function populateMinkeTables(self, act, trace){
+  var pfkey = compilePfkey(self, act,trace);
+  var ts = trace.metadata.timestamp;
+  if ( self.config.dev_mode ) ts = Date.now();
+  self.db.serialize(function() {
+    populateRawTraceTable(self, act, trace, pfkey, ts);
+    populateRawMemoryPieces(self, act, trace, pfkey, ts);
+    populateRawTransactions(self, act, trace, pfkey, ts);
+    populateMetaTransactions(self, act, trace, pfkey, ts);
   });
 };
 
 function populateRawTraceTable(self, act, trace, pfkey, ts){
-  var db = self.db;
-  ts = ts.toString();
-  var stmt = db.prepare("INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($pfkey,$ts,$trace)");
-  var params = {};
-  params.$pfkey = pfkey;
-  params.$ts = ts;
-  params.$trace = trace;
-  stmt.run(params);
-
-  if ( DEV_MODE )
-    for (var i = 0; i < EXTRA_WRITE_COUNT_IN_DEV_MODE; i++) {
-      var parts = pfkey.split($$$);
-      params.$pfkey = parts[0]+$$$+md5((new Date()).toString()+Math.random().toString()+parts[1]);
+  zlib.gzip(JSON.stringify(trace), function(err,buf){
+    var db = self.db;
+    ts = ts.toString();
+    var stmt = db.prepare("INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($pfkey,$ts,$trace)");
+    var params = {};
+    params.$pfkey = pfkey;
+    params.$ts = ts;
+    params.$trace = buf;
     stmt.run(params);
-    };
-
-  stmt.finalize();
+    if ( self.config.dev_mode )
+      for (var i = 0; i < EXTRA_WRITE_COUNT_IN_DEVMODE; i++) {
+        var parts = pfkey.split($$$);
+        params.$pfkey = parts[0]+$$$+md5((new Date()).toString()+Math.random().toString()+parts[1]);
+      stmt.run(params);
+      };
+    stmt.finalize();
+  });
 };
 
 function populateRawMemoryPieces(self, act, trace, pfkey, ts){
@@ -357,7 +360,7 @@ function populateRawTransactions(self, act, trace, pfkey, ts){
   params.$lm_a = 0;
   params.$minute_ix = 1;
   var act_ts_host_pid = act+$$$+ts.toString()+$$$+params.$host+$$$+params.$pid.toString();
-  if ( DEV_MODE ) act_ts_host_pid += $$$+md5((new Date()).toString()+Math.random().toString());
+  if ( self.config.dev_mode ) act_ts_host_pid += $$$+md5((new Date()).toString()+Math.random().toString());
   for (var tran in trace.transactions.transactions){
     var stats = trace.transactions.transactions[tran].subset_stats;
     params.$act_tran_ts_host_pid = act_ts_host_pid+$$$+tran;
@@ -374,7 +377,7 @@ function populateRawTransactions(self, act, trace, pfkey, ts){
 
 function populateMetaTransactions(self, act, trace, pfkey, ts){
   if ( !trace.transactions || !trace.transactions.transactions || Object.keys(trace.transactions.transactions).length==0 ){
-    if ( DEV_MODE ) console.log("meta_transactions - trans in trace empty ... skipped.")
+    if ( self.config.dev_mode ) console.log("meta_transactions - trans in trace empty ... skipped.")
     return;
   };
   var db = self.db;
@@ -395,13 +398,13 @@ function populateMetaTransactions(self, act, trace, pfkey, ts){
     if ( row ){
       trans = row.trans.split($$$);
       query = "UPDATE meta_transactions SET trans=$trans WHERE act_hour_host_pid=$act_hour_host_pid";
-      if ( DEV_MODE ) process.stdout.write("UPDATE meta_transactions ...");
+      process.stdout.write("UPDATE meta_transactions");
     }
     else{
       query = "INSERT INTO meta_transactions \
         ( act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
         ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)";
-      if ( DEV_MODE ) process.stdout.write("INSERT meta_transactions ...");
+      process.stdout.write("INSERT meta_transactions");
       params.$act = act;
       params.$ts = ts;
       params.$hour = hour;
@@ -418,10 +421,10 @@ function populateMetaTransactions(self, act, trace, pfkey, ts){
       params.$trans = trans;
       stmt.run(params);
       stmt.finalize();
-      if ( DEV_MODE ) console.log(" done.");
+      console.log(" for",act_hour_host_pid,"... done.");
     }
     else{
-      if ( DEV_MODE ) console.log(" skipped.");
+      console.log(" for",act_hour_host_pid,"... skipped.");
     };
   });
 };
@@ -476,10 +479,10 @@ function deleteAllStaleRecords () {
 // var trace = {monitoring:{system_info:{hostname:"hostname"}},metadata:{pid:12345,timestamp:12345467890123}};
 // compilePfkey("cx-dataserver",trace)
 // --> 'cx-dataserver#0/hostname#0/12345/12345467890.json'
-function compilePfkey(act, trace){
+function compilePfkey(self, act, trace){
   var pfkey = act+"#0/";
   pfkey += trace.monitoring.system_info.hostname;
-  if ( DEV_MODE ) pfkey += $$$+md5((new Date()).toString()+Math.random().toString());
+  if ( self.config.dev_mode ) pfkey += $$$+md5((new Date()).toString()+Math.random().toString());
   pfkey += "#0/";
   pfkey += trace.metadata.pid.toString()+"/";
   pfkey += Math.floor(trace.metadata.timestamp/1000).toString()+".json";
