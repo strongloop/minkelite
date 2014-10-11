@@ -35,9 +35,6 @@
     "xtend": "~4.0.0",
     "zlib": "~1.0.5"
   },
-  "dependencies": {
-    "request": "~2.45.0"    
-  },
   "engines": {
     "node": "~0.10.28"
   }

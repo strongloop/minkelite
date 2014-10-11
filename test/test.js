@@ -1,8 +1,10 @@
 var MINKELITE_PORT = 8103;
+var HOST = "cxlite.concurix.com"; // "localhost"
+
 var cx = require('concurix')({
 	accountKey: "wfp:mf3d4p",
-	archiveInterval: 5000,
-	api_host: "localhost",
+	archiveInterval: 60000,
+	api_host: HOST,
 	api_port: MINKELITE_PORT
 });
 
@@ -13,7 +15,10 @@ var http = require("http");
 var zlib = require('zlib');
 
 var MINKELITE = MinkeLite();
-MINKELITE.get_express_app().listen(MINKELITE_PORT);
+MINKELITE.get_express_app().listen(MINKELITE_PORT, function(){
+	console.log(MINKELITE);
+	console.log("MinkeLite listening on",MINKELITE_PORT);
+});
 var LOAD_TRACE_INTERVAL_SECONDS = 1;
 var GC_INTERVAL_COUNTS = 1000;
 
@@ -24,6 +29,9 @@ var GC_INTERVAL_COUNTS = 1000;
 // localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/1/0/0
 // localhost:8103/get_meta_transactions/wfp:mf3d4p
 // localhost:8103/get_transaction/wfp:mf3d4p/serve%20GET%20%2F/1/0/0
+
+// cxlite.concurix.com:8103/get_meta_transactions/wfp:mf3d4p
+
 
 var GC_COUNTER = 0;
 
@@ -46,7 +54,7 @@ function loadTrace(){
 }
 
 function postGzTrace(buf){
-	var url = 'http://localhost:'+MINKELITE_PORT.toString()+'/results/1.0.1';
+	var url = 'http://'+HOST+':'+MINKELITE_PORT.toString()+'/results/1.0.1';
 	var compressed = buf;
 	request.post({
 		url: url,
@@ -68,7 +76,7 @@ function postGzTrace(buf){
 function _upload(compressed) {
   var options = {
     agent: false,
-    host: "localhost",
+    host: HOST,
     port: MINKELITE_PORT,
     path: "/results/1.0.1",
     method: "POST",
@@ -76,8 +84,8 @@ function _upload(compressed) {
 		"content-type": "application/json",
 		"content-length": compressed.length,
 		"content-encoding": "gzip",
-		"Concurix-API-Key": 'MinkeLite_Test',
-		"Concurix-Host": "MinkeLite_Host",
+		"Concurix-API-Key": 'wfp:mf3d4p',
+		"Concurix-Host": "cxlite:concurix.com",
 		"Concurix-Pid": process.pid
     }
   }
