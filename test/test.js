@@ -1,23 +1,22 @@
 var MINKELITE_PORT = 8103
-var HOST = "localhost" // cxlite.concurix.com" // "localhost"
+var HOST = "cxlive.concurix.com" // "localhost"
 var ACT_KEY = "wfp:mf3d4p"
 
 var cx = require('concurix')({
 	accountKey: ACT_KEY,
-	archiveInterval: 5000,
+	archiveInterval: 60000,
 	api_host: HOST,
 	api_port: MINKELITE_PORT
 })
 
 var MinkeLite = require("../index")
 var fs = require("fs")
-var request = require("request")
 var http = require("http")
 var zlib = require('zlib')
 
 var DEBUG = false
 
-var MINKELITE = MinkeLite({"in_memory":true,"verbose":true,"server_port":MINKELITE_PORT})
+var MINKELITE = MinkeLite({"verbose":true,"server_port":MINKELITE_PORT})
 var LOAD_TRACE_INTERVAL_SECONDS = 1
 
 // localhost:8103/get_meta_transactions/wfp:mf3d4p

@@ -19,6 +19,7 @@ var express = require('express')
 var fs = require("fs")
 var md5 = require('MD5')
 var sqlite3 = require("sqlite3")
+var statslite = require("stats-lite")
 var util = require('util')
 var xtend = require('xtend')
 var zlib = require('zlib')
@@ -691,12 +692,11 @@ function populateStatsMeanSd(self, value, unitStr){
   var DATA = {}
 
   function meanAndSdOfArray(array){
-    var sum = 0.0
-    for (var i in array){sum += array[i]}
-    var mean = sum/array.length;
-    var sd = mean/3
+    var mean = statslite.mean(array)
+    var sd = statslite.stdev(array)
     return [mean, sd]
   }
+
 
   function readRowsRawMemoryPieces(err, rows){
     if (err){console.log("ERROR:",err)}
