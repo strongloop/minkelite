@@ -24,9 +24,6 @@ var util = require('util')
 var xtend = require('xtend')
 var zlib = require('zlib')
 
-var HOST_PID_AWARE = false
-var META_CMD = null
-
 var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
 var $$$ = '|'
 var TRACE_NOT_FOUND_GZIPPED = null
@@ -78,8 +75,8 @@ function MinkeLite(config) {
   this.config.max_transaction_count = this.config.max_transaction_count || 20
   this.config.stats_interval_seconds = this.config.stats_interval_seconds || 600
 
-  HOST_PID_AWARE = ( this.config.host_pid_aware!=null ) ? this.config.host_pid_aware : false
-  META_CMD = HOST_PID_AWARE ? "/get_meta_transactions/:act/:host/:pid" : "/get_meta_transactions/:act"
+  this.config.host_pid_aware = ( this.config.host_pid_aware!=null ) ? this.config.host_pid_aware : false
+  this.config.meta_cmd = this.config.host_pid_aware ? "/get_meta_transactions/:act/:host/:pid" : "/get_meta_transactions/:act"
 
   this._init_db()
   this._init_server()
@@ -142,11 +139,11 @@ MinkeLite.prototype._init_server = function () {
     .get("/get_raw_pieces/:pfkey",
       function(req,res){getRawPieces(this,req,res)}.bind(this))
     .get("/get_raw_memory_pieces/:act/:host/:pid",
-      function(req,res){getRawMemoryPieces(this,req,res,HOST_PID_AWARE)}.bind(this))
-    .get(META_CMD,
-      function(req,res){getMetaTransactions(this,req,res,HOST_PID_AWARE)}.bind(this))
+      function(req,res){getRawMemoryPieces(this,req,res,this.config.host_pid_aware)}.bind(this))
+    .get(this.config.meta_cmd,
+      function(req,res){getMetaTransactions(this,req,res,this.config.host_pid_aware)}.bind(this))
     .get("/get_transaction/:act/:transaction/:host/:pid",
-      function(req,res){getTransaction(this,req,res,HOST_PID_AWARE)}.bind(this));
+      function(req,res){getTransaction(this,req,res,this.config.host_pid_aware)}.bind(this));
   this.express_server = this.config.start_server ? this.express_app.listen(this.config.server_port,
     function(){if(this.config.verbose) console.log("MinkeLite is listening on " + this.config.server_port)}.bind(this)) : null
 }
@@ -182,10 +179,10 @@ function getRawMemoryPieces(self,req,res, hostPidAware){
 
     function getRowsRawMemoryPieces(err, rows){
       if (err){console.log("ERROR:",err)}
-      else if (rows!=null){
+      else if ( rows ){
         for (var i in rows){
-          var row = rows[i];
-          var data = {};
+          var row = rows[i]
+          var data = {}
           data["pfkey"] = row.pfkey
           data["ts"] = getDateTimeStr(row.ts)
           data["p_mr"] = row.p_mr
@@ -203,7 +200,7 @@ function getRawMemoryPieces(self,req,res, hostPidAware){
           } else {
             DATA["points"].push(data)
           }
-        };
+        }
         if( ! hostPidAware ){
           DATA["host"] = HOST
           DATA["pid"] = PID
@@ -226,14 +223,14 @@ function getRawMemoryPieces(self,req,res, hostPidAware){
           })
         }
         zipAndRespond(DATA,res)
-     };
-    };
+     }
+    }
 
     var chartTime = ago(self.config.chart_minutes, "minutes").toString()
     var funArray = []
     if( ! hostPidAware ){
       var queryLastHostPid = util.format("SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s ORDER BY ts DESC", act, chartTime)
-      funArray.push(function(cb){db.get(queryLastHostPid,function(err,row){HOST=row.host;PID=row.pid;cb()});})
+      funArray.push(function(cb){db.get(queryLastHostPid,function(err,row){HOST=row.host;PID=row.pid;cb()})})
     }
     async.series(funArray,
     function(err,result){
@@ -250,22 +247,22 @@ function getRawMemoryPieces(self,req,res, hostPidAware){
       // }
       var baseQuery1 = util.format("SELECT pfkey,ts,host,pid,p_mr,p_mt,p_mu,p_ut,s_la,lm_a FROM raw_memory_pieces WHERE act='%s' AND ts > %s ", act, chartTime)
       var baseQuery2 = "ORDER BY ts"
-      if ( hostPidAware && HOST && PID && HOST.length>0 && HOST!="0" && PID>0 ) {
+      if ( hostPidAware && HOST.length>0 && HOST!="0" && PID>0 ) {
         var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
         query = util.format(querySpecificHostPid, HOST, PID.toString())
-      } else if ( hostPidAware && HOST && PID && HOST.length>0 && HOST!="0" && PID==0 ) {
+      } else if ( hostPidAware && HOST.length>0 && HOST!="0" && PID==0 ) {
         var querySpecificHost = baseQuery1+"AND host='%s' "+baseQuery2
-        query = util.format(querySpecificHost, HOST);
-      } else if ( hostPidAware && HOST && PID && (HOST.length==0 || HOST=="0") && PID>0 ) {
+        query = util.format(querySpecificHost, HOST)
+      } else if ( hostPidAware && (HOST.length==0 || HOST=="0") && PID>0 ) {
         var querySpecificPid = baseQuery1+"AND pid=%s "+baseQuery2
         query = util.format(querySpecificPid, PID.toString())
       } else {
         query = baseQuery1+baseQuery2
       }
       db.all(query,getRowsRawMemoryPieces)
-    });
-  });
-};
+    })
+  })
+}
 
 function getMetaTransactions(self,req,res,hostPidAware){
   // "/get_meta_transactions/:act/:host/:pid"
@@ -288,7 +285,7 @@ function getMetaTransactions(self,req,res,hostPidAware){
 
     function getRowsMetaTransactions(err, rows){
       if (err){console.log("ERROR:",err)}
-      else if (rows!=null){
+      else if ( rows ){
         for (var i in rows){
           var row = rows[i]
           if( hostPidAware ){
@@ -310,32 +307,19 @@ function getMetaTransactions(self,req,res,hostPidAware){
           }
         }
         zipAndRespond(DATA,res)
-     }
+      }
     }
 
     var chartTime = ago(self.config.chart_minutes, "minutes").toString()
     var query = null
-    // if ( hostPidAware && host && pid && host.length>0 && host!="0" && pid>0 ) {
-    //   var querySpecificHostPid = "SELECT host,pid,trans FROM meta_transactions WHERE act='%s' AND host='%s' AND pid=%s AND ts > %s";
-    //   query = util.format(querySpecificHostPid, act, host, pid.toString(), chartTime);
-    // } else if ( hostPidAware && host && pid && host.length>0 && host!="0" && pid==0 ) {
-    //   var querySpecificHost = "SELECT host,pid,trans FROM meta_transactions WHERE act='%s' AND host='%s' AND ts > %s";
-    //   query = util.format(querySpecificHost, act, host, chartTime);
-    // } else if ( hostPidAware && host && pid && (host.length==0 || host=="0") && pid>0 ) {
-    //   var querySpecificPid = "SELECT host,pid,trans FROM meta_transactions WHERE act='%s' AND pid='%s' AND ts > %s";
-    //   query = util.format(querySpecificPid, act, pid.toString(), chartTime);
-    // } else {
-    //   var queryAllHostPid = "SELECT host,pid,trans FROM meta_transactions WHERE act='%s' AND ts > %s"
-    //   query = util.format(queryAllHostPid, act, chartTime);
-    // }
     var baseQuery = util.format("SELECT host,pid,trans FROM meta_transactions WHERE act='%s' AND ts > %s", act, chartTime)
-    if ( hostPidAware && HOST && PID && HOST.length>0 && HOST!="0" && PID>0 ) {
+    if ( hostPidAware && HOST.length>0 && HOST!="0" && PID>0 ) {
       var querySpecificHostPid = baseQuery+" AND host='%s' AND pid=%s"
       query = util.format(querySpecificHostPid, HOST, PID.toString())
-    } else if ( hostPidAware && HOST && PID && HOST.length>0 && HOST!="0" && PID==0 ) {
+    } else if ( hostPidAware && HOST.length>0 && HOST!="0" && PID==0 ) {
       var querySpecificHost = baseQuery+" AND host='%s'"
-      query = util.format(querySpecificHost, HOST);
-    } else if ( hostPidAware && HOST && PID && (HOST.length==0 || HOST=="0") && PID>0 ) {
+      query = util.format(querySpecificHost, HOST)
+    } else if ( hostPidAware && (HOST.length==0 || HOST=="0") && PID>0 ) {
       var querySpecificPid = baseQuery+" AND pid=%s"
       query = util.format(querySpecificPid, PID.toString())
     } else {
@@ -351,7 +335,7 @@ function getTransaction(self,req,res,hostPidAware){
   var tran = req.params.transaction
   var HOST = decodeURIComponent(req.params.host)
   var PID = parseInteger(decodeURIComponent(req.params.pid))
-  var db = self.db;
+  var db = self.db
 
   db.serialize(function() {
     var DATA = {}
@@ -361,7 +345,7 @@ function getTransaction(self,req,res,hostPidAware){
     
     function getRowsTransactions(err, rows){
       if (err){console.log("ERROR:",err)}
-      else if (rows!=null){
+      else if ( rows ){
         for (var i in rows){
           var row = rows[i]
           var data = {}
@@ -386,7 +370,7 @@ function getTransaction(self,req,res,hostPidAware){
             data["pid"] = row.pid
             DATA["points"].push(data)
           }
-        };
+        }
         if( hostPidAware ){
           for(var host in DATA["hosts"]){
             for(var pid in DATA["hosts"][host] ){
@@ -412,24 +396,15 @@ function getTransaction(self,req,res,hostPidAware){
 
     var chartTime = ago(self.config.chart_minutes, "minutes").toString()
     var query = null
-    // if ( host && pid && host.length>0 && host!="0" && pid>0 ) {
-    //   var querySpecificHostPid = "SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND host='%s' AND pid=%s AND ts > %s ORDER BY max DESC LIMIT "
-    //     +self.config.max_transaction_count.toString();
-    //   query = util.format(querySpecificHostPid, act, tran, host, pid.toString(), chartTime);
-    // } else {
-    //   var queryAllHostPid = "SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND ts > %s ORDER BY max DESC LIMIT "
-    //     +self.config.max_transaction_count.toString();
-    //   query = util.format(queryAllHostPid, act, tran, chartTime);
-    // }
     var baseQuery1 = util.format("SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND ts > %s ", act, tran, chartTime)
     var baseQuery2 = util.format("ORDER BY max DESC LIMIT %s", self.config.max_transaction_count.toString())
-    if ( hostPidAware && HOST && PID && HOST.length>0 && HOST!="0" && PID>0 ) {
+    if ( hostPidAware && HOST.length>0 && HOST!="0" && PID>0 ) {
       var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
       query = util.format(querySpecificHostPid, HOST, PID.toString())
-    } else if ( hostPidAware && HOST && PID && HOST.length>0 && HOST!="0" && PID==0 ) {
+    } else if ( hostPidAware && HOST.length>0 && HOST!="0" && PID==0 ) {
       var querySpecificHost = baseQuery1+"AND host='%s' "+baseQuery2
       query = util.format(querySpecificHost, HOST)
-    } else if ( hostPidAware && HOST && PID && (HOST.length==0 || HOST=="0") && PID>0 ) {
+    } else if ( hostPidAware && (HOST.length==0 || HOST=="0") && PID>0 ) {
       var querySpecificPid = baseQuery1+"AND pid=%s "+baseQuery2
       query = util.format(querySpecificPid, PID.toString())
     } else {
@@ -617,7 +592,7 @@ function populateMetaTransactions(self, act, trace, pfkey, ts){
     else{
       query = "INSERT INTO meta_transactions \
         ( act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
-        ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)";
+        ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)"
       if ( self.config.verbose ) process.stdout.write("INSERT meta_transactions")
       params.$act = act
       params.$ts = ts
@@ -692,6 +667,10 @@ function populateStatsMeanSd(self, value, unitStr){
   var DATA = {}
 
   function meanAndSdOfArray(array){
+    // var sum = 0.0
+    // for (var i in array){sum += array[i]}
+    // var mean = sum/array.length
+    // var sd = mean/3
     var mean = statslite.mean(array)
     var sd = statslite.stdev(array)
     return [mean, sd]
@@ -712,7 +691,7 @@ function populateStatsMeanSd(self, value, unitStr){
           dp["p_mu"].push(row.p_mu)       
           dp["s_la"].push(row.s_la)        
         } else {
-          var dp = {};
+          var dp = {}
           dp["p_mu"] = [row.p_mu]
           dp["s_la"] = [row.s_la]
           DATA["points"][act_host_pid] = dp
@@ -771,7 +750,7 @@ function populateStatsMeanSd(self, value, unitStr){
             var params = {}
             params.$act_host_pid = AP.ahp
             stmtSelect.get(params,function(err,row){
-              var found = false;
+              var found = false
               if (err){console.log("ERROR:",err)}
               else{found = (row!=null)}
               AP.found = found
@@ -795,7 +774,7 @@ function populateStatsMeanSd(self, value, unitStr){
             params.$s_la_mean = AP.dPoint["s_la_mean"]
             params.$s_la_sd = AP.dPoint["s_la_sd"]
             stmt.run(params,function(err){
-              if ( self.config.verbose ) console.log(" for",this.ahp,"... done.");
+              if ( self.config.verbose ) console.log(" for",this.ahp,"... done.")
               if ( this.lastOne ){
                 this.stmtS.finalize()
                 this.stmtU.finalize()
@@ -824,7 +803,7 @@ function buildStats () {
 // --> 'cx-dataserver#0/hostname#0/12345/12345467890.json'
 function compilePfkey(self, act, trace){
   var pfkey = act+"#0/"
-  pfkey += trace.monitoring.system_info.hostname;
+  pfkey += trace.monitoring.system_info.hostname
   if ( self.config.dev_mode ) pfkey += $$$+md5((new Date()).toString()+Math.random().toString())
   pfkey += "#0/"
   pfkey += trace.metadata.pid.toString()+"/"
@@ -855,8 +834,8 @@ function zipAndRespond(data,res){
 function getDateTimeStr(ts){
 
   function zeroFill(s){
-    if ( s.length==1 ) s = '0'+s;
-    return s;
+    if ( s.length==1 ) s = '0'+s
+    return s
   }
 
   var dt = new Date(ts)
@@ -870,7 +849,7 @@ function getDateTimeStr(ts){
 }
 
 function getHourInt(epochTs){
-  var dt = new Date(epochTs);
+  var dt = new Date(epochTs)
   return 1000000*dt.getUTCFullYear()+10000*(dt.getUTCMonth()+1)+100*dt.getUTCDate()+dt.getUTCHours()
 }
 
