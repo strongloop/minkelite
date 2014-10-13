@@ -1,27 +1,5 @@
 {
-  "dev_mode": false,
-  "in_memory": false,
+  "in_memory": true,
   "dir_path": "./",
-  "db_name": ":memory:",
-  "stale_minutes": 2880,
-  "chart_minutes": 1440,
-  "pruning_interval_seconds": 600,
-  "tables":[
-  	{
-  		"name": "raw_trace",
-  		"columns": "pfkey TEXT PRIMARY KEY, ts INTEGER, trace BLOB"
-  	}
-  	,{
-  		"name": "raw_memory_pieces",
-  		"columns": "pfkey TEXT PRIMARY KEY, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, minute_ix INTEGER, p_mr INTEGER, p_mt INTEGER, p_mu INTEGER, p_ut REAL, s_la REAL"
-  	}
-    ,{
-      "name": "meta_transactions",
-      "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts INTEGER, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
-    }
-  	,{
-  		"name": "raw_transactions",
-      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, minute_ix INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
-  	}
-  ]
+  "db_name": "minkelite.db"
 }

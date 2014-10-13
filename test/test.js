@@ -1,61 +1,65 @@
-var MINKELITE_PORT = 8103;
-var HOST = "cxlite.concurix.com"; // "localhost"
+var MINKELITE_PORT = 8103
+var HOST = "localhost" // cxlite.concurix.com" // "localhost"
+var ACT_KEY = "wfp:mf3d4p"
 
 var cx = require('concurix')({
-	accountKey: "wfp:mf3d4p",
-	archiveInterval: 60000,
+	accountKey: ACT_KEY,
+	archiveInterval: 5000,
 	api_host: HOST,
 	api_port: MINKELITE_PORT
-});
+})
 
 var MinkeLite = require("../index")
-var fs = require("fs");
-var request = require("request");
-var http = require("http");
-var zlib = require('zlib');
+var fs = require("fs")
+var request = require("request")
+var http = require("http")
+var zlib = require('zlib')
 
-var MINKELITE = MinkeLite();
-MINKELITE.get_express_app().listen(MINKELITE_PORT, function(){
-	console.log(MINKELITE);
-	console.log("MinkeLite listening on",MINKELITE_PORT);
-});
-var LOAD_TRACE_INTERVAL_SECONDS = 1;
-var GC_INTERVAL_COUNTS = 1000;
+var DEBUG = false
 
-// node --nouse_idle_notification --expose_gc --expose-debug-as=v8debug test.js
+var MINKELITE = MinkeLite({"in_memory":true,verbose":true,"server_port":MINKELITE_PORT})
+var LOAD_TRACE_INTERVAL_SECONDS = 1
+
+// localhost:8103/get_meta_transactions/wfp:mf3d4p
+// localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/0/0
+// localhost:8103/get_raw_pieces/d89f29a0bb4094ff1d78d9df89cfc132|9beefcf937ba1c320af0aba9f11eacc3
+// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/0/0
+
+// localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/setoair.home/12975
+// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/setoair.home/12975
+// localhost:8103/get_meta_transactions/wfp:mf3d4p/setoair.home/12975
 
 // Get pfkey from the log of active server and replace pfkey in the following HTTP request.
-// localhost:8103/get_raw_pieces/84004897964b8aafe155badafc510f32|fc9702eed2bb4b60309f5129d1a8e1fb/1/1/1/1/1
-// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/1/0/0
 // localhost:8103/get_meta_transactions/wfp:mf3d4p
-// localhost:8103/get_transaction/wfp:mf3d4p/serve%20GET%20%2F/1/0/0
+// localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/0/0
+// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/0/0
+// localhost:8103/get_raw_pieces/d89f29a0bb4094ff1d78d9df89cfc132|36fc135614aa2c40ae73ad59a3f192df
+
+// localhost:8103/get_meta_transactions/wfp:mf3d4p/SetoAir.local/12975
 
 // cxlite.concurix.com:8103/get_meta_transactions/wfp:mf3d4p
 
-
-var GC_COUNTER = 0;
 
 function loadTrace(){
 	var trace = fs.readFileSync("./cx-websever_1412467216_formatted.json");
 	zlib.gzip(trace,function(err, gzipped_buf){
 		MINKELITE.db.serialize(function(){
-			// postGzTrace(gzipped_buf);
-			_upload(gzipped_buf);
-			// MINKELITE._write_raw_trace(trace, "wfp:mf3d4p");
-			MINKELITE._read_all_records("raw_trace", false);
-			MINKELITE._read_all_records("raw_memory_pieces", false);
-			MINKELITE._read_all_records("raw_transactions", false);
-			MINKELITE._read_all_records("meta_transactions", false);
-		});
-		// MINKELITE.shutdown();
-	});
-  	console.log("_____________________ GC_COUNTER :",GC_COUNTER, "___________________");
-	if ( GC_COUNTER++ == GC_INTERVAL_COUNTS ){global.gc();GC_COUNTER=0};
+			// postGzTrace(gzipped_buf)
+			_upload(gzipped_buf)
+			// MINKELITE._write_raw_trace(trace, "wfp:mf3d4p")
+			MINKELITE._read_all_records("raw_trace", false)
+			MINKELITE._read_all_records("raw_memory_pieces", false)
+			MINKELITE._read_all_records("raw_transactions", false)
+			MINKELITE._read_all_records("meta_transactions", false)
+			MINKELITE._read_all_records("stats_mean_sd", false)
+		})
+		// MINKELITE.shutdown()
+	})
 }
 
 function postGzTrace(buf){
-	var url = 'http://'+HOST+':'+MINKELITE_PORT.toString()+'/results/1.0.1';
-	var compressed = buf;
+	var url = 'http://'+HOST+':'+MINKELITE_PORT.toString()+'/results/1.0.1'
+	var compressed = buf
 	request.post({
 		url: url,
 		body: compressed,
@@ -63,14 +67,14 @@ function postGzTrace(buf){
 			"content-type": "application/json",
 			"content-length": compressed.length,
 			"content-encoding": "gzip",
-			"Concurix-API-Key": 'MinkeLite_Test',
-			"Concurix-Host": "MinkeLite_Host",
+			"Concurix-API-Key": ACT_KEY,
+			"Concurix-Host": HOST,
 			"Concurix-Pid": process.pid
 	    }
 	}, function (err, res, body) {
 		console.log("Status code of test.js/postGzTrace POST: %s", res.statusCode)
-	 	if (err) {console.log("err:", err)};
-	});
+	 	if (err) {console.log("err:", err)}
+	})
 }
 
 function _upload(compressed) {
@@ -84,8 +88,8 @@ function _upload(compressed) {
 		"content-type": "application/json",
 		"content-length": compressed.length,
 		"content-encoding": "gzip",
-		"Concurix-API-Key": 'wfp:mf3d4p',
-		"Concurix-Host": "cxlite:concurix.com",
+		"Concurix-API-Key": ACT_KEY,
+		"Concurix-Host": HOST,
 		"Concurix-Pid": process.pid
     }
   }
@@ -102,4 +106,4 @@ function _upload(compressed) {
 }
 
 
-// TRACE_LOADER = setInterval(loadTrace, LOAD_TRACE_INTERVAL_SECONDS*1000);
+// TRACE_LOADER = setInterval(loadTrace, LOAD_TRACE_INTERVAL_SECONDS*1000)
