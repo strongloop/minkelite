@@ -17,7 +17,7 @@ var zlib = require('zlib')
 
 var DEBUG = false
 
-var MINKELITE = MinkeLite({"in_memory":true,verbose":true,"server_port":MINKELITE_PORT})
+var MINKELITE = MinkeLite({"in_memory":true,"verbose":true,"server_port":MINKELITE_PORT})
 var LOAD_TRACE_INTERVAL_SECONDS = 1
 
 // localhost:8103/get_meta_transactions/wfp:mf3d4p
