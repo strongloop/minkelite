@@ -579,7 +579,7 @@ function assembleTransBlob(transArray){
 
 function isInTransArray(tran,transArray){
   for(var i in transArray){
-    if( transArray[0]==tran ) return true
+    if( transArray[i][0]==tran ) return true
   }
   return false
 }
@@ -819,8 +819,10 @@ function buildStats () {
   var self = this[0]
   var value = this[1]
   var unitStr = this[2]
-  populateStatsMeanSd(self,value,unitStr)
-  if ( self.config.verbose ) self._read_all_records("model_mean_sd", false)
+  self.db.serialize(function(){
+    populateStatsMeanSd(self,value,unitStr)
+    if ( self.config.verbose ) self._read_all_records("model_mean_sd", false)
+  })
 }
 // Utilities
 
