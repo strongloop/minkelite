@@ -7,7 +7,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "node --nouse_idle_notification --expose_gc --expose-debug-as=v8debug test/test.js"
+    "test": "node test/test.js"
   },
   "repository": {
     "type": "git",

@@ -417,7 +417,7 @@ function getTransaction(self,req,res,hostPidAware){
 function postRawPieces(self,req,res){
   var version = decodeURIComponent(req.params.version)
   if( SUPPORTED_TRACER_VERSIONS.indexOf(version)<0 ){
-    res.writeHead(400)
+    res.writeHead(403)
   } else {
     var act = req.headers['concurix-api-key']
     self._write_raw_trace(act, req.body)
