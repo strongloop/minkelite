@@ -281,13 +281,14 @@ function getMetaTransactions(self,req,res,hostPidAware){
           reverseSortTransArray(transArray)
           var maxTransCount = Math.min(transArray.length,self.config.max_transaction_count)
           for (var k=0; k<maxTransCount; k++){
+            var tran = transArray[k][0]
             if ( hostPidAware ){
-              if (!(transArray[k][0] in DATA["hosts"][row.host][row.pid]))
-                DATA["hosts"][row.host][row.pid].push(transArray[k][0])
+              if( DATA["hosts"][row.host][row.pid].indexOf(tran) < 0 )
+                DATA["hosts"][row.host][row.pid].push(tran)
             }
             else {
-              if (!(transArray[k][0] in DATA["transactions"][0]["transactions"]))
-                DATA["transactions"][0]["transactions"].push(transArray[k][0])
+              if ( DATA["transactions"][0]["transactions"] < 0 )
+                DATA["transactions"][0]["transactions"].push(tran)
             }
           }
         }
