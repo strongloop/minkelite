@@ -63,12 +63,12 @@ function MinkeLite(config) {
   this.config.stale_minutes = this.config.stale_minutes || 1*24*60
   this.config.chart_minutes = this.config.chart_minutes || 1*24*60
   this.config.pruning_interval_seconds = this.config.pruning_interval_seconds || 600
-  this.config.start_server = (this.config.start_server!=null) ? this.config.start_server : true
+  this.config.start_server = (this.config.start_server!=null) ? this.config.start_server : false
   this.config.server_port = this.config.server_port || 8103
   this.config.max_transaction_count = this.config.max_transaction_count || 20
   this.config.stats_interval_seconds = this.config.stats_interval_seconds || 600
 
-  this.config.host_pid_aware = ( this.config.host_pid_aware!=null ) ? this.config.host_pid_aware : false
+  this.config.host_pid_aware = ( this.config.host_pid_aware!=null ) ? this.config.host_pid_aware : true
   this.config.meta_cmd = this.config.host_pid_aware ? "/get_meta_transactions/:act/:host/:pid" : "/get_meta_transactions/:act"
 
   this._init_db()

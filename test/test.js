@@ -1,10 +1,10 @@
 var MINKELITE_PORT = 8103
-var HOST = "cxlite.concurix.com" // "localhost"
+var HOST = "localhost" // cxlite.concurix.com" // "localhost"
 var ACT_KEY = "wfp:mf3d4p"
 
 var cx = require('concurix')({
 	accountKey: ACT_KEY,
-	archiveInterval: 60000,
+	archiveInterval: 5000,
 	api_host: HOST,
 	api_port: MINKELITE_PORT
 })
@@ -16,12 +16,12 @@ var zlib = require('zlib')
 
 var DEBUG = false
 
-var MINKELITE = MinkeLite({"verbose":true,"host_pid_aware":true,"server_port":MINKELITE_PORT})
+var MINKELITE = MinkeLite({"verbose":true,"start_server":true,"server_port":MINKELITE_PORT})
 var LOAD_TRACE_INTERVAL_SECONDS = 1
 
-// localhost:8103/get_meta_transactions/wfp:mf3d4p
+// localhost:8103/get_meta_transactions/wfp:mf3d4p/0/0
 // localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/0/0
-// localhost:8103/get_raw_pieces/d89f29a0bb4094ff1d78d9df89cfc132|9beefcf937ba1c320af0aba9f11eacc3
+// localhost:8103/get_raw_pieces/d89f29a0bb4094ff1d78d9df89cfc132|077f3dfa95fc471f1e320bd18a0d83cd
 // localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/0/0
 
 // localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/setoair.home/12975
