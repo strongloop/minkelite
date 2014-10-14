@@ -32,6 +32,7 @@ var SUPPORTED_TRACER_VERSIONS = ["1.0.1"]
 var MIN_DATA_POINTS_REQUIRED = 30
 
 var SYSTEM_TABLES = {
+  // "raw_trace", "raw_memory_pieces", "meta_transactions", "raw_transactions", "model_mean_sd"
   "system_tables":[
     {
       "name": "raw_trace",
@@ -195,7 +196,9 @@ function getRawMemoryPieces(self,req,res, hostPidAware){
             var hosts = Object.keys(DATA["hosts"])
             if( hosts.indexOf(row.host)<0 ) DATA["hosts"][row.host] = {}
             var pids = Object.keys(DATA["hosts"][row.host])
-            if( pids.indexOf(row.pid)<0 ) DATA["hosts"][row.host][row.pid] = []
+            if( pids.indexOf(row.pid.toString())<0 ){
+              DATA["hosts"][row.host][row.pid] = []
+            }
             DATA["hosts"][row.host][row.pid].push(data)
           } else {
             DATA["points"].push(data)
@@ -292,7 +295,7 @@ function getMetaTransactions(self,req,res,hostPidAware){
             var hosts = Object.keys(DATA["hosts"])
             if( hosts.indexOf(row.host)<0 ) DATA["hosts"][row.host] = {}
             var pids = Object.keys(DATA["hosts"][row.host])
-            if( pids.indexOf(row.pid)<0 ) DATA["hosts"][row.host][row.pid] = []
+            if( pids.indexOf(row.pid.toString())<0 ) DATA["hosts"][row.host][row.pid] = []
           }
           var trans = row.trans.split($$$)
           for (var k in trans){
@@ -363,7 +366,7 @@ function getTransaction(self,req,res,hostPidAware){
             var hosts = Object.keys(DATA["hosts"])
             if( hosts.indexOf(row.host)<0 ) DATA["hosts"][row.host] = {}
             var pids = Object.keys(DATA["hosts"][row.host])
-            if( pids.indexOf(row.pid)<0 ) DATA["hosts"][row.host][row.pid] = []
+            if( pids.indexOf(row.pid.toString())<0 ) DATA["hosts"][row.host][row.pid] = []
             DATA["hosts"][row.host][row.pid].push(data)
           } else {
             data["host"] = row.host
@@ -417,7 +420,7 @@ function getTransaction(self,req,res,hostPidAware){
 function postRawPieces(self,req,res){
   var version = decodeURIComponent(req.params.version)
   if( SUPPORTED_TRACER_VERSIONS.indexOf(version)<0 ){
-    res.writeHead(403)
+    res.writeHead(400)
   } else {
     var act = req.headers['concurix-api-key']
     self._write_raw_trace(act, req.body)
@@ -435,6 +438,7 @@ MinkeLite.prototype._write_raw_trace = function (act, trace) {
   }
 }
 
+  // "raw_trace", "raw_memory_pieces", "meta_transactions", "raw_transactions", "model_mean_sd"
 function populateMinkeTables(self, act, trace){
   var pfkey = compilePfkey(self, act,trace)
   var ts = trace.metadata.timestamp
@@ -443,13 +447,17 @@ function populateMinkeTables(self, act, trace){
     function(async_cb){
       self.db.serialize(function() {
         populateRawTraceTable(self, act, trace, pfkey, ts, async_cb)
+        if ( self.config.verbose ) self._read_all_records("raw_trace", false)
       })
     }
     ,function(async_cb){
       self.db.serialize(function() {
         populateRawMemoryPieces(self, act, trace, pfkey, ts)
+        if ( self.config.verbose ) self._read_all_records("raw_memory_pieces", false)
         populateRawTransactions(self, act, trace, pfkey, ts)
+        if ( self.config.verbose ) self._read_all_records("raw_transactions", false)
         populateMetaTransactions(self, act, trace, pfkey, ts)
+        if ( self.config.verbose ) self._read_all_records("meta_transactions", false)
         async_cb(null)
       })
     }
@@ -477,7 +485,8 @@ function populateRawTraceTable(self, act, trace, pfkey, ts, cb){
     params.$pfkey = pfkey
     params.$ts = ts
     params.$trace = buf
-    try {stmt.run(params)} catch (e){err = true}
+    try {
+      stmt.run(params)} catch (e){err = true}
     if ( !err && self.config.dev_mode ){
       for (var i = 0; i < EXTRA_WRITE_COUNT_IN_DEVMODE; i++) {
         var parts = pfkey.split($$$)
@@ -676,7 +685,6 @@ function populateStatsMeanSd(self, value, unitStr){
     return [mean, sd]
   }
 
-
   function readRowsRawMemoryPieces(err, rows){
     if (err){console.log("ERROR:",err)}
     else if (rows!=null){
@@ -795,6 +803,7 @@ function buildStats () {
   var value = this[1]
   var unitStr = this[2]
   populateStatsMeanSd(self,value,unitStr)
+  if ( self.config.verbose ) self._read_all_records("model_mean_sd", false)
 }
 // Utilities
 
