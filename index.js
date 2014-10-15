@@ -32,7 +32,7 @@ var SYSTEM_TABLES = {
     }
     ,{
       "name": "raw_memory_pieces",
-      "columns": "pfkey TEXT PRIMARY KEY, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, minute_ix INTEGER, p_mr INTEGER, p_mt INTEGER, p_mu INTEGER, p_ut REAL, s_la REAL"
+      "columns": "pfkey TEXT PRIMARY KEY, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, p_mr INTEGER, p_mt INTEGER, p_mu INTEGER, p_ut REAL, s_la REAL"
     }
     ,{
       "name": "meta_transactions",
@@ -40,7 +40,7 @@ var SYSTEM_TABLES = {
     }
     ,{
       "name": "raw_transactions",
-      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, minute_ix INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
+      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
     }
     ,{
       "name": "model_mean_sd",
@@ -484,8 +484,10 @@ function populateRawTraceTable(self, act, trace, pfkey, ts, cb){
   })
 }
 
-function getLMa(stats, p_mu, s_la){
+function getLMa(stats, trace){
   if ( stats==null ) return 0
+  var p_mu = trace.monitoring.process_info.memory.heapUsed
+  var s_la = trace.monitoring.system_info.loadavg["1m"]
   var p_mu_threshold = stats["p_mu_mean"] + stats["p_mu_sd"]*3
   var s_la_threshold = stats["s_la_mean"] + stats["s_la_sd"]*3
   var anomaly = (p_mu > p_mu_threshold || s_la > s_la_threshold)
@@ -502,24 +504,23 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts){
       var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
       db.get(query, function(err,row){async_cb(null,row)})
     }
-  ],function(err,stats){
+  ],function(err,stats_mean_sd){
     ts = ts.toString()
     var stmt = db.prepare("INSERT INTO raw_memory_pieces \
-      ( pfkey, ts, act, host, pid, lm_a, minute_ix, p_mr, p_mt, p_mu, p_ut, s_la) VALUES \
-      ($pfkey,$ts,$act,$host,$pid,$lm_a,$minute_ix,$p_mr,$p_mt,$p_mu,$p_ut,$s_la)")
+      ( pfkey, ts, act, host, pid, lm_a, p_mr, p_mt, p_mu, p_ut, s_la) VALUES \
+      ($pfkey,$ts,$act,$host,$pid,$lm_a,$p_mr,$p_mt,$p_mu,$p_ut,$s_la)")
     var params = {}
     params.$pfkey = pfkey
     params.$ts = ts
     params.$act = act
     params.$host = host
     params.$pid = pid
-    params.$minute_ix = 1
     params.$p_mr = trace.monitoring.process_info.memory.rss
     params.$p_mt = trace.monitoring.process_info.memory.heapTotal
     params.$p_mu = trace.monitoring.process_info.memory.heapUsed
     params.$p_ut = trace.monitoring.process_info.uptime
     params.$s_la = trace.monitoring.system_info.loadavg["1m"]
-    params.$lm_a = getLMa(stats, params.$p_mu, params.$s_la)
+    params.$lm_a = getLMa(stats_mean_sd, trace)
     stmt.run(params)
     stmt.finalize()
   })
@@ -530,32 +531,41 @@ function populateRawTransactions(self, act, trace, pfkey, ts){
     return
   }
   var db = self.db
-  ts = ts.toString()
-  var stmt = db.prepare("INSERT INTO raw_transactions \
-    ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, minute_ix, max, mean, min, n, sd) VALUES \
-    ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$minute_ix,$max,$mean,$min,$n,$sd)")
-  var params = {}
-  params.$pfkey = pfkey
-  params.$ts = ts
-  params.$act = act
-  params.$host = trace.monitoring.system_info.hostname
-  params.$pid = trace.metadata.pid
-  params.$lm_a = 0
-  params.$minute_ix = 1
-  var act_ts_host_pid = act+$$$+ts.toString()+$$$+params.$host+$$$+params.$pid.toString()
-  if ( self.config.dev_mode ) act_ts_host_pid += $$$+md5((new Date()).toString()+Math.random().toString())
-  for (var tran in trace.transactions.transactions){
-    var stats = trace.transactions.transactions[tran].subset_stats
-    params.$act_tran_ts_host_pid = act_ts_host_pid+$$$+tran
-    params.$tran = tran
-    params.$max = stats.max
-    params.$mean = stats.mean
-    params.$min = stats.min
-    params.$n = stats.n
-    params.$sd = stats.standard_deviation
-    stmt.run(params)
-  }
-  stmt.finalize()
+  var host = trace.monitoring.system_info.hostname
+  var pid = trace.metadata.pid
+  var act_host_pid = act+$$$+host+$$$+pid.toString()
+  async.waterfall([
+    function(async_cb){
+      var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
+      db.get(query, function(err,row){async_cb(null,row)})
+    }
+  ],function(err,stats_mean_sd){
+    ts = ts.toString()
+    var stmt = db.prepare("INSERT INTO raw_transactions \
+      ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
+      ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
+    var params = {}
+    params.$pfkey = pfkey
+    params.$ts = ts
+    params.$act = act
+    params.$host = trace.monitoring.system_info.hostname
+    params.$pid = trace.metadata.pid
+    params.$lm_a = getLMa(stats_mean_sd, trace)
+    var act_ts_host_pid = act+$$$+ts.toString()+$$$+params.$host+$$$+params.$pid.toString()
+    if ( self.config.dev_mode ) act_ts_host_pid += $$$+md5((new Date()).toString()+Math.random().toString())
+    for (var tran in trace.transactions.transactions){
+      var stats = trace.transactions.transactions[tran].subset_stats
+      params.$act_tran_ts_host_pid = act_ts_host_pid+$$$+tran
+      params.$tran = tran
+      params.$max = stats.max
+      params.$mean = stats.mean
+      params.$min = stats.min
+      params.$n = stats.n
+      params.$sd = stats.standard_deviation
+      stmt.run(params)
+    }
+    stmt.finalize()
+  })
 }
 
 function decomposeTransBlob(trans){
