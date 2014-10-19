@@ -1,28 +1,37 @@
 {
   "name": "minkelite",
-  "version": "0.0.3",
-  "description": "\"Functions and utility for loading/fetching trace data to/from light-weight db\"",
+  "version": "0.0.4",
+  "description": "Functions and utility for loading/fetching trace data to/from light-weight db",
   "main": "index.js",
   "directories": {
     "test": "test"
   },
   "scripts": {
-    "test": "node test/test.js"
+    "test": "node test.js"
   },
+  "author": {
+    "name": "Tetsuo Seto"
+  },
+  "licenses": [
+    {
+      "type": "Licensed under the Concurix Terms Of Service",
+      "url": "http://www.concurix.com/tos_main"
+    }
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Concurix/minkelite.git"
+  },
+  "homepage": "https://github.com/Concurix/concurix-server",
+  "bugs": {
+    "url": "https://github.com/Concurix/minkelite/issues"
   },
   "keywords": [
     "concurx",
     "sqlite3",
     "minke"
   ],
-  "author": "setotet@gmail.com",
-  "license": "BSD-2-Clause",
-  "bugs": {
-    "url": "https://github.com/Concurix/minkelite/issues"
-  },
+  "devDependencies": {},
   "dependencies": {
     "ago": "~1.0.0",
     "async": "~0.9.0",
@@ -34,8 +43,5 @@
     "stats-lite": "~1.0.3",
     "util": "~0.10.3",
     "xtend": "~4.0.0"
-  },
-  "engines": {
-    "node": "~0.10.28"
   }
 }

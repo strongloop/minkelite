@@ -1,4 +1,4 @@
-var MINKELITE_PORT = 8103
+var MINKELITE_PORT = 8102
 var HOST = "localhost" // cxlite.concurix.com" // "localhost"
 var ACT_KEY = "wfp:mf3d4p"
 
@@ -16,7 +16,7 @@ var zlib = require('zlib')
 
 var DEBUG = false
 
-var MINKELITE = MinkeLite({"verbose":true,"start_server":true,"server_port":MINKELITE_PORT})
+var MINKELITE = MinkeLite({"verbose":true,"in_memory":false,"start_server":true, "server_port":MINKELITE_PORT})
 var LOAD_TRACE_INTERVAL_SECONDS = 1
 
 // localhost:8103/get_meta_transactions/wfp:mf3d4p/0/0
