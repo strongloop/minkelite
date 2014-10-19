@@ -130,7 +130,7 @@ MinkeLite.prototype._init_server = function () {
       function(req,res){postRawPieces(this,req,res)}.bind(this))
     .get("/get_raw_pieces/:pfkey",
       function(req,res){getRawPieces(this,req,res)}.bind(this))
-    .get("/get_raw_memory_pieces/:act/:host/:pid/:include_data_points",
+    .get("/get_raw_memory_pieces/:act/:host/:pid",
       function(req,res){getRawMemoryPieces(this,req,res)}.bind(this))
     .get("/get_meta_transactions/:act/:host/:pid",
       function(req,res){getMetaTransactions(this,req,res)}.bind(this))
