@@ -1,5 +1,5 @@
 var MINKELITE_PORT = 8102
-var HOST = "localhost" // cxlite.concurix.com" // "localhost"
+var HOST = "localhost"
 var ACT_KEY = "wfp:mf3d4p"
 
 var cx = require('concurix')({
@@ -16,28 +16,8 @@ var zlib = require('zlib')
 
 var DEBUG = false
 
-var MINKELITE = MinkeLite({"verbose":true,"in_memory":false,"start_server":true, "server_port":MINKELITE_PORT})
+var MINKELITE = MinkeLite({"verbose":true,"in_memory":true,"start_server":true,"server_port":MINKELITE_PORT})
 var LOAD_TRACE_INTERVAL_SECONDS = 1
-
-// localhost:8103/get_meta_transactions/wfp:mf3d4p/0/0
-// localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/0/0
-// localhost:8103/get_raw_pieces/d89f29a0bb4094ff1d78d9df89cfc132|077f3dfa95fc471f1e320bd18a0d83cd
-// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/0/0
-
-// localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/setoair.home/12975
-// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/setoair.home/12975
-// localhost:8103/get_meta_transactions/wfp:mf3d4p/setoair.home/12975
-
-// Get pfkey from the log of active server and replace pfkey in the following HTTP request.
-// localhost:8103/get_meta_transactions/wfp:mf3d4p
-// localhost:8103/get_transaction/wfp:mf3d4p/serve%20POST%20%2Fresults%2F1.0.1/0/0
-// localhost:8103/get_raw_memory_pieces/wfp:mf3d4p/0/0
-// localhost:8103/get_raw_pieces/d89f29a0bb4094ff1d78d9df89cfc132|36fc135614aa2c40ae73ad59a3f192df
-
-// localhost:8103/get_meta_transactions/wfp:mf3d4p/SetoAir.local/12975
-
-// cxlite.concurix.com:8103/get_meta_transactions/wfp:mf3d4p
-
 
 function loadTrace(){
 	var trace = fs.readFileSync("./cx-websever_1412467216_formatted.json");
@@ -50,7 +30,7 @@ function loadTrace(){
 			MINKELITE._read_all_records("raw_memory_pieces", false)
 			MINKELITE._read_all_records("raw_transactions", false)
 			MINKELITE._read_all_records("meta_transactions", false)
-			MINKELITE._read_all_records("stats_mean_sd", false)
+			MINKELITE._read_all_records("model_mean_sd", false)
 		})
 		// MINKELITE.shutdown()
 	})

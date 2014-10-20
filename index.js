@@ -69,6 +69,7 @@ function MinkeLite(config) {
   this.config.server_port = this.config.server_port || 8103
   this.config.max_transaction_count = this.config.max_transaction_count || 20
   this.config.stats_interval_seconds = this.config.stats_interval_seconds || 10*60
+  this.config.compress_trace_file = this.config.compress_trace_file || true
 
   this._init_db()
   this._init_server()
@@ -142,22 +143,45 @@ MinkeLite.prototype._init_server = function () {
     function(){if(this.config.verbose) console.log("MinkeLite is listening on " + this.config.server_port)}.bind(this)) : null
 }
 
+function sendCompressedTrace(err,row){
+  var self = this[0]
+  var res = this[1]
+  var trace = TRACE_NOT_FOUND_GZIPPED
+  if ( row && row.trace ){
+    trace = row.trace
+    if( self.config.verbose ) console.log("___ SELECT trace(compressed) for pfkey :", pfkey, '... done.')
+  }
+  writeHeaderJSON(res)
+  res.write(trace)
+  res.end()  
+}
+
+function sendUncompressedTrace(err,row){
+  var self = this[0]
+  var res = this[1]
+  if ( row && row.trace ){
+    zlib.unzip(rowData.trace, function(zlibErr, buf){
+      var traceStr = buf.toString('utf-8');
+      writeHeaderJSON(res,false)
+      res.write(traceStr)
+      res.end()    
+    })
+    if( self.config.verbose ) console.log("___ SELECT trace(uncompressed) for pfkey :", pfkey, '... done.')
+  } else {
+    writeHeaderJSON(res,false)
+    res.write("The trace file not found.")
+    res.end()    
+  }
+}
+
 function getRawPieces(self,req,res){
   // "/get_raw_pieces/:pfkey"
   var pfkey = decodeURIComponent(req.params.pfkey)
   var db = self.db
   db.serialize(function() {
     var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey)
-    db.get(query, function(err,row){
-      var trace = TRACE_NOT_FOUND_GZIPPED
-      if ( row && row.trace ){
-        trace = row.trace
-        if( self.config.verbose ) console.log("___ SELECT trace for pfkey :", pfkey, '... done.')
-      }
-      writeHeaderJSON(res)
-      res.write(trace)
-      res.end()
-    })
+    var callback = self.config.compress_trace_file ? sendCompressedTrace : sendUncompressedTrace
+    db.get(query, callback.bind([self,res]))
   })
 }
 
@@ -169,16 +193,24 @@ function getHostPidList(self,req,res){
   db.serialize(function() {
     var DATA = {}
     DATA["act"] = act
-    DATA["hosts"] = {}
+    DATA["hosts"] = []
 
     function getRowsHostPidList(err, rows){
       if (err){console.log("ERROR:",err)}
       else if ( rows ){
+        var hosts = DATA["hosts"]
         for (var i in rows){
           var row = rows[i]
-          var data = {}
-          if(!(row.host in DATA["hosts"])) DATA["hosts"][row.host] = []
-          DATA["hosts"][row.host].push(row.pid)
+          var data = {"host":row.host,"pids":[row.pid]}
+          var unknownHost = true
+          for(var k in hosts){
+            if( hosts[k]["host"]==row.host ){
+              hosts[k]["pids"].push(row.pid)
+              unknownHost = false
+              break
+            }
+          }
+          if( unknownHost ) hosts.push(data)
         }
         zipAndRespond(DATA,res)
         if( self.config.verbose ) console.log("___ SELECT host,pid FROM raw_memory_pieces for act :", act, "... done.")
@@ -186,7 +218,7 @@ function getHostPidList(self,req,res){
     }
 
     var chartTime = ago(self.config.chart_minutes, "minutes").toString()
-    var query = util.format("SELECT DISTINCT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s ORDER BY host, pid", act, chartTime)
+    var query = util.format("SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s ORDER BY ts DESC)", act, chartTime)
 
     db.all(query,getRowsHostPidList)
   })
@@ -831,8 +863,11 @@ function parseInteger(str){
   return intValue
 }
 
-function writeHeaderJSON(res){
-  res.writeHead(200, {'Content-Type': 'application/json', 'Content-Encoding': 'gzip'})
+function writeHeaderJSON(res,compress){
+  compress = ( compress==null ) ? true : compress
+  var option = {'Content-Type': 'application/json'}
+  if( compress ) option['Content-Encoding'] = 'gzip'
+  res.writeHead(200, option)
 }
 
 function zipAndRespond(data,res){
