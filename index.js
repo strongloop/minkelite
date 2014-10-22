@@ -201,7 +201,6 @@ function getHostPidList(self,req,res){
         var hosts = DATA["hosts"]
         for (var i in rows){
           var row = rows[i]
-          var data = {"host":row.host,"pids":[row.pid]}
           var unknownHost = true
           for(var k in hosts){
             if( hosts[k]["host"]==row.host ){
@@ -210,7 +209,9 @@ function getHostPidList(self,req,res){
               break
             }
           }
-          if( unknownHost ) hosts.push(data)
+          if( unknownHost ){
+            hosts.push({"host":row.host,"pids":[row.pid]})
+          }
         }
         zipAndRespond(DATA,res)
         if( self.config.verbose ) console.log("___ SELECT host,pid FROM raw_memory_pieces for act :", act, "... done.")
@@ -893,7 +894,7 @@ function getDateTimeStr(ts){
   dtStr += ' '+zeroFill(dt.getUTCHours().toString())
   dtStr += ':'+zeroFill(dt.getUTCMinutes().toString())
   dtStr += ':'+zeroFill(dt.getUTCSeconds().toString())
-  return dtStr
+  return dtStr+" GMT"
 }
 
 function getHourInt(epochTs){
