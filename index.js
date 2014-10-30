@@ -880,7 +880,9 @@ function zipAndRespond(data,res){
   })
 }
 
-function getDateTimeStr(ts){
+var getDateTimeStr = getISODateTimeStr
+
+function getGMTDateTimeStr(ts){
 
   function zeroFill(s){
     if ( s.length==1 ) s = '0'+s
@@ -895,6 +897,11 @@ function getDateTimeStr(ts){
   dtStr += ':'+zeroFill(dt.getUTCMinutes().toString())
   dtStr += ':'+zeroFill(dt.getUTCSeconds().toString())
   return dtStr+" GMT"
+}
+
+function getISODateTimeStr(ts){
+  var dt = new Date(ts)
+  return dt.toISOString()
 }
 
 function getHourInt(epochTs){
