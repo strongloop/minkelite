@@ -22,7 +22,9 @@ var $$_ = '?'
 var TRACE_NOT_FOUND_GZIPPED = null
 zlib.gzip("The trace file not found.",function(err, buf){TRACE_NOT_FOUND_GZIPPED = buf})
 var SUPPORTED_TRACER_VERSIONS = ["1.0.1"]
-var MIN_DATA_POINTS_REQUIRED_FOR_MODELING = 30
+var MIN_DATA_POINTS_REQUIRED_FOR_MODELING = 20
+var SUPRESS_NOISY_WATERFALL_SEGMENTS = false
+var MINIMUM_SEGMENT_DURATION = 2
 
 var SYSTEM_TABLES = {
   // "raw_trace", "raw_memory_pieces", "meta_transactions", "raw_transactions", "model_mean_sd"
@@ -465,6 +467,19 @@ function populateMinkeTables(self, act, trace){
 function populateRawTraceTable(self, act, trace, pfkey, ts, cb){
   async.waterfall([
     function(async_cb){
+      if( SUPRESS_NOISY_WATERFALL_SEGMENTS ){
+        for( var k in trace.waterfalls ){
+          var waterfall = trace.waterfalls[k]
+          for( var i=waterfall.segments.length-1; i>=0; i-- ){
+            var segment = waterfall.segments[i]
+            var segment_duration = segment.end - segment.start
+            if( segment_duration < MINIMUM_SEGMENT_DURATION ) waterfall.segments.splice(i,1)
+          }
+        }
+      }
+      async_cb(null)
+    }
+    ,function(async_cb){
       zlib.gzip(JSON.stringify(trace), function(err,buf){
         async_cb(err,buf)
       })
@@ -582,7 +597,7 @@ function decomposeTransBlob(trans){
   for(var i in trans){
     var parts = trans[i].split($$_)
     if( parts.length==1 ) parts.push(1)
-    transArray.push([parts[0],parts[1]])
+    transArray.push([parts[0],parseInt(parts[1])])
   }
   return transArray
 }
@@ -595,17 +610,20 @@ function assembleTransBlob(transArray){
   return transArray.join($$$)
 }
 
-function isInTransArray(tran,transArray){
+function isInTransArray(tran,value,transArray){
   for(var i in transArray){
-    if( transArray[i][0]==tran ) return true
+    if( transArray[i][0]==tran ){
+      if( transArray[i][1] > value ){ return true }
+      else { transArray.splice(i,1); return false }
+    }
   }
   return false
 }
 
 function reverseSortTransArray(transArray){
   transArray.sort(function(x,y){
-    if( y[1]<x[1] ) return -1
-    if( y[1]<x[1] ) return 1
+    if( x[1]<y[1] ) return 1
+    if( x[1]>y[1] ) return -1
     return 0
   })
 }
@@ -651,8 +669,9 @@ function populateMetaTransactions(self, act, trace, pfkey, ts){
     }
     var newTransAdded = false
     for (var tran in trace.transactions.transactions){
-      if ( ! isInTransArray(tran,transArray) ){
-        transArray.push([tran,trace.transactions.transactions[tran].subset_stats.max]);
+      var value = trace.transactions.transactions[tran].subset_stats.max
+      if ( ! isInTransArray(tran,value,transArray) ){
+        transArray.push([tran,value]);
         newTransAdded=true;
       }
     }
