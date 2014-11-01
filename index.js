@@ -162,7 +162,7 @@ function sendUncompressedTrace(err,row){
   var self = this[0]
   var res = this[1]
   if ( row && row.trace ){
-    zlib.unzip(rowData.trace, function(zlibErr, buf){
+    zlib.unzip(row.trace, function(zlibErr, buf){
       var traceStr = buf.toString('utf-8');
       writeHeaderJSON(res,false)
       res.write(traceStr)

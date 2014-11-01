@@ -9,4 +9,4 @@ See [concurix-server](https://github.com/Concurix/concurix-server) for one-stop 
 License
 ===========
 
-Licensed under the [Concurix Terms Of Service](https://github.com/Concurix/minkelite#license)
+Licensed under the [Concurix Terms Of Service](http://www.concurix.com/tos_main)
