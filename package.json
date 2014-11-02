@@ -1,6 +1,6 @@
 {
   "name": "minkelite",
-  "version": "0.1.0",
+  "version": "0.0.4",
   "description": "Functions and utility for loading/fetching trace data to/from light-weight db",
   "main": "index.js",
   "scripts": {
