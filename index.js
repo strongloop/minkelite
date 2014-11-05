@@ -75,7 +75,7 @@ function MinkeLite(config) {
 
   this._init_db()
   this._init_server()
-  this.pruner = this.config.pruning_interval_seconds==0 ? null : setInterval(deleteAllStaleRecords.bind([this,this.config.stale_minutes,"minute"]), this.config.pruning_interval_seconds*1000)
+  this.pruner = (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0 ) ? null : setInterval(deleteAllStaleRecords.bind([this,this.config.stale_minutes,"minute"]), this.config.pruning_interval_seconds*1000)
   this.model_builder = setInterval(buildStats.bind([this,this.config.stale_minutes,"minute"]), this.config.stats_interval_seconds*1000)
   if ( this.config.verbose ) console.log(this)
 }
