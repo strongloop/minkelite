@@ -18,7 +18,7 @@ var zlib = require('zlib')
 var DISABLE_VERBOSE_MODE = true
 var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
 var $$$ = '|'
-var $$_ = '?'
+var $$_ = '!'
 var TRACE_NOT_FOUND_GZIPPED = null
 zlib.gzip("The trace file not found.",function(err, buf){TRACE_NOT_FOUND_GZIPPED = buf})
 var SUPPORTED_TRACER_VERSIONS = ["1.0.1","1.1.0","1.1.1"]
@@ -487,7 +487,6 @@ function populateRawTraceTable(self, act, trace, pfkey, ts, cb){
   ],function(err,buf){
     if( err ){cb(err);return}
     var db = self.db
-    ts = ts.toString()
     var stmt = db.prepare("INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($pfkey,$ts,$trace)")
     var params = {}
     params.$pfkey = pfkey
@@ -528,7 +527,6 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts){
       db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
-    ts = ts.toString()
     var stmt = db.prepare("INSERT INTO raw_memory_pieces \
       ( pfkey, ts, act, host, pid, lm_a, p_mr, p_mt, p_mu, p_ut, s_la) VALUES \
       ($pfkey,$ts,$act,$host,$pid,$lm_a,$p_mr,$p_mt,$p_mu,$p_ut,$s_la)")
@@ -563,7 +561,6 @@ function populateRawTransactions(self, act, trace, pfkey, ts){
       db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
-    ts = ts.toString()
     var stmt = db.prepare("INSERT INTO raw_transactions \
       ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
       ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
@@ -795,7 +792,6 @@ function populateStatsMeanSd(self, value, unitStr){
     }
   ],
   function(err,result){
-    var nowStr = getDateTimeStr(DATA["ts"])
     db.serialize(function() {
       var stmtSelect = db.prepare(querySelect)
       var stmtUpdate = db.prepare(queryUpdate)
@@ -805,7 +801,7 @@ function populateStatsMeanSd(self, value, unitStr){
         var act_host_pid = keys[i]
         var lastActHostPid = (i==keys.length-1)
         var dp = DATA["points"][act_host_pid]
-        var asyncP = {"ahp":act_host_pid, "lastOne":lastActHostPid, "dPoint":dp, "stmtS":stmtSelect, "stmtU": stmtUpdate, "stmtI": stmtInsert, "nowStr": nowStr}
+        var asyncP = {"ahp":act_host_pid, "lastOne":lastActHostPid, "dPoint":dp, "stmtS":stmtSelect, "stmtU": stmtUpdate, "stmtI": stmtInsert, "now": DATA["ts"]}
         async.waterfall([
           function(cb){cb(null,this)}.bind(asyncP)
           ,function(AP,cb){
@@ -830,7 +826,7 @@ function populateStatsMeanSd(self, value, unitStr){
             }
             var params = {}
             params.$act_host_pid = AP.ahp
-            params.$ts = AP.nowStr
+            params.$ts = AP.now
             params.$p_mu_mean = AP.dPoint["p_mu_mean"]
             params.$p_mu_sd = AP.dPoint["p_mu_sd"]
             params.$s_la_mean = AP.dPoint["s_la_mean"]
