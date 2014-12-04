@@ -592,9 +592,23 @@ function decomposeTransBlob(trans){
   var transArray =  []
   var trans = trans.split($$$)
   for(var i in trans){
-    var parts = trans[i].split($$_)
-    if( parts.length==1 ) parts.push(1)
-    transArray.push([parts[0],parseInt(parts[1])])
+    var tr = null
+    var pos = trans[i].indexOf($$_)
+    if( pos<0 ) {
+      console.log("*** ERROR decomposeTransBlob: separator not found.")
+      tr = [trans[i],1]
+    }
+    else {
+      var frequency = parseInt(trans[i].substring(0,pos))
+      if( isNaN(frequency) ){
+        console.log("*** ERROR decomposeTransBlob: invalid frequency.")
+        tr = [trans[i],1]
+      }
+      else {
+        tr = [trans[i].substring(pos+1),frequency]             
+      }
+    }
+    transArray.push(tr)
   }
   return transArray
 }
@@ -602,7 +616,7 @@ function decomposeTransBlob(trans){
 function assembleTransBlob(transArray){
   for(var i in transArray){
     var parts = transArray[i]
-    transArray[i] = parts[0]+$$_+parts[1].toString()
+    transArray[i] = parts[1].toString() + $$_ + parts[0]
   }
   return transArray.join($$$)
 }
@@ -610,7 +624,7 @@ function assembleTransBlob(transArray){
 function isInTransArray(tran,value,transArray){
   for(var i in transArray){
     if( transArray[i][0]==tran ){
-      if( transArray[i][1] > value ){ return true }
+      if( transArray[i][1] >= value ){ return true }
       else { transArray.splice(i,1); return false }
     }
   }
