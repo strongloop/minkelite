@@ -599,13 +599,13 @@ function decomposeTransBlob(trans){
       tr = [trans[i],1]
     }
     else {
-      var frequency = parseInt(trans[i].substring(0,pos))
-      if( isNaN(frequency) ){
-        console.log("*** ERROR decomposeTransBlob: invalid frequency.")
+      var duration = parseInt(trans[i].substring(0,pos))
+      if( isNaN(duration) ){
+        console.log("*** ERROR decomposeTransBlob: invalid duration.")
         tr = [trans[i],1]
       }
       else {
-        tr = [trans[i].substring(pos+1),frequency]             
+        tr = [trans[i].substring(pos+1),duration]
       }
     }
     transArray.push(tr)
