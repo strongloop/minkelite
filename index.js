@@ -885,7 +885,8 @@ function compilePfkey(self, act, trace){
   if ( self.config.dev_mode ) pfkey += $$$+md5((new Date()).toString()+Math.random().toString())
   pfkey += "#0/"
   pfkey += trace.metadata.pid.toString()+"/"
-  pfkey += Math.floor(trace.metadata.timestamp/1000).toString()+".json"
+  // pfkey += Math.floor(trace.metadata.timestamp/1000).toString()+".json"
+  pfkey += trace.metadata.timestamp.toString()+".json"
   return [md5(act)+$$$+md5(pfkey), pfkey]
 }
 
