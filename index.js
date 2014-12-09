@@ -21,7 +21,7 @@ var $$$ = '|'
 var $$_ = '!'
 var TRACE_NOT_FOUND_GZIPPED = null
 zlib.gzip("The trace file not found.",function(err, buf){TRACE_NOT_FOUND_GZIPPED = buf})
-var SUPPORTED_TRACER_VERSIONS = ["1.0.1","1.1.0","1.1.1"]
+var SUPPORTED_TRACER_VERSIONS = ["1.0.","1.1."]
 var MIN_DATA_POINTS_REQUIRED_FOR_MODELING = 20
 var SUPRESS_NOISY_WATERFALL_SEGMENTS = false
 var MINIMUM_SEGMENT_DURATION = 2
@@ -412,13 +412,16 @@ function getTransaction(self,req,res){
 
 function postRawPieces(self,req,res){
   var version = decodeURIComponent(req.params.version)
-  if( SUPPORTED_TRACER_VERSIONS.indexOf(version)<0 ){
-    res.writeHead(400)
-  } else {
-    var act = req.headers['concurix-api-key']
-    self._write_raw_trace(act, req.body)
-    res.writeHead(202)
+  for(var i in SUPPORTED_TRACER_VERSIONS){
+    if( version.indexOf(SUPPORTED_TRACER_VERSIONS[i])==0 ){
+      var act = req.headers['concurix-api-key']
+      self._write_raw_trace(act, req.body)
+      res.writeHead(202)
+      res.end()
+      return
+    }
   }
+  res.writeHead(400)
   res.end()
 }
 
