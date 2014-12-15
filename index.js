@@ -316,10 +316,21 @@ function getMetaTransactions(self,req,res){
         var maxTransCount = Math.min(transArray.length,self.config.max_transaction_count)
         for (var k=0; k<maxTransCount; k++){
           var tran = transArray[k][0]
-          if( DATA["hosts"][row.host][row.pid].indexOf(tran) < 0 )
-            DATA["hosts"][row.host][row.pid].push(tran)
+          var value = transArray[k][1]
+          var transArrayInDATA = DATA["hosts"][row.host][row.pid]
+          if( ! isInTransArray(tran,value,transArrayInDATA) ) transArrayInDATA.push([tran,value])
         }
         freeTransArray(transArray)
+      }
+      for(var host in DATA["hosts"]){
+        for(var pid in DATA["hosts"][host]){
+          var transArrayInDATA = DATA["hosts"][host][pid]
+          reverseSortTransArray(transArrayInDATA)
+          for(var i in transArrayInDATA){ transArrayInDATA[i] = transArrayInDATA[i][0] }
+          var maxTransCount = Math.min(transArrayInDATA.length,self.config.max_transaction_count)
+          for(var i=maxTransCount; i<transArrayInDATA.length; i++){ delete transArrayInDATA[i] }
+          transArrayInDATA.splice(maxTransCount)
+        }
       }
       zipAndRespond(DATA,res)
       freeTranStrings()
@@ -586,38 +597,6 @@ function populateRawTransactions(self, act, trace, pfkey, ts){
   })
 }
 
-function decomposeTransBlob(transBlob){
-  var transArray =  []
-  var trans = transBlob.split($$$)
-  for(var i in trans){
-    var tr = null
-    var pos = trans[i].indexOf($$_)
-    if( pos<0 ) {
-      console.log("*** ERROR decomposeTransBlob: separator not found.")
-      tr = [trans[i],1]
-    }
-    else {
-      var duration = parseInt(trans[i].substring(0,pos))
-      if( isNaN(duration) ){
-        console.log("*** ERROR decomposeTransBlob: invalid duration.")
-        tr = [trans[i],1]
-      }
-      else {
-        tr = [trans[i].substring(pos+1),duration]
-      }
-    }
-    transArray.push(tr)
-  }
-  return transArray
-}
-
-function freeTransArray(transArray){
-  for(var i in transArray){
-    delete transArray[i][0]
-    delete transArray[i][1]
-  }
-}
-
 function assembleTransBlob(transArray){
   var stringArray = []
   for(var i in transArray){
@@ -625,6 +604,41 @@ function assembleTransBlob(transArray){
     stringArray.push(parts[1].toString() + $$_ + parts[0])
   }
   return stringArray.join($$$)
+}
+
+var TIMESTAMP_LENGTH = "1418410714939".length
+function extractDuration(numericStr, cutOffTime){
+  if( numericStr.length <= TIMESTAMP_LENGTH) return NaN
+  var timestamp = parseInt(numericStr.substring(0,TIMESTAMP_LENGTH))
+  if( isNaN(timestamp) || timestamp<cutOffTime ) return NaN
+  var duration = parseInt(numericStr.substring(TIMESTAMP_LENGTH))
+  if( cutOffTime>0 ) console.log("DEBUG", numericStr, cutOffTime, duration)
+  return duration
+}
+
+function decomposeTransBlob(transBlob){
+  var transArray =  []
+  var trans = transBlob.split($$$)
+  for(var i in trans){
+    var tr = null
+    var pos = trans[i].indexOf($$_)
+    if( pos<0 ) {
+      // console.log("*** ERROR decomposeTransBlob: separator not found.")
+      // tr = [trans[i],1]
+    }
+    else {
+      var duration = parseInt(trans[i].substring(0,pos))
+      if( isNaN(duration) ){
+        // console.log("*** ERROR decomposeTransBlob: invalid duration.")
+        // tr = [trans[i],1]
+      }
+      else {
+        tr = [trans[i].substring(pos+1),duration]
+      }
+    }
+    if( tr ) transArray.push(tr)
+  }
+  return transArray
 }
 
 function isInTransArray(tran,value,transArray){
@@ -635,6 +649,13 @@ function isInTransArray(tran,value,transArray){
     }
   }
   return false
+}
+
+function freeTransArray(transArray){
+  for(var i in transArray){
+    delete transArray[i][0]
+    delete transArray[i][1]
+  }
 }
 
 function reverseSortTransArray(transArray){
