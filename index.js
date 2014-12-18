@@ -17,6 +17,7 @@ var util = require('util')
 var xtend = require('xtend')
 var zlib = require('zlib')
 
+var LIMIT_TRANSACTION_INSTANCES = false
 var DISABLE_VERBOSE_MODE = true
 var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
 var $$$ = '|'
@@ -404,7 +405,7 @@ function getTransaction(self,req,res){
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
   var query = null
   var baseQuery1 = util.format("SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND ts > %s ", act, tran, chartTime)
-  var baseQuery2 = util.format("ORDER BY max DESC LIMIT %s", self.config.max_transaction_count.toString())
+  var baseQuery2 = LIMIT_TRANSACTION_INSTANCES ? util.format("ORDER BY max DESC LIMIT %s", self.config.max_transaction_count.toString()) : ""
   if ( HOST.length>0 && HOST!="0" && PID>0 ) {
     var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
     query = util.format(querySpecificHostPid, HOST, PID.toString())
