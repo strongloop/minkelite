@@ -451,7 +451,7 @@ function populateMinkeTables(self, act, trace){
   var pfkey = pfkeys[0]
   if( self.config.verbose ) console.log(pfkeys[1],"____________________________________________________")
   var ts = trace.metadata.timestamp
-  if ( self.config.dev_mode ) ts = Date.now()
+  if( self.config.dev_mode || trace.monitoring.system_info.arch=="ia32" ) ts = Date.now()
   async.series([
     function(async_cb){
       populateRawTraceTable(self, act, trace, pfkey, ts, async_cb)
