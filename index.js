@@ -447,11 +447,12 @@ MinkeLite.prototype._write_raw_trace = function (act, trace) {
 
   // "raw_trace", "raw_memory_pieces", "meta_transactions", "raw_transactions", "model_mean_sd"
 function populateMinkeTables(self, act, trace){
-  var pfkeys = compilePfkey(self, act,trace)
+  if( trace.monitoring.system_info.arch=="ia32" && trace.metadata.timestamp < ago(10,"minutes") ) trace.metadata.timestamp = Date.now()
+  var pfkeys = compilePfkey(self, act, trace)
   var pfkey = pfkeys[0]
   if( self.config.verbose ) console.log(pfkeys[1],"____________________________________________________")
   var ts = trace.metadata.timestamp
-  if( self.config.dev_mode || trace.monitoring.system_info.arch=="ia32" ) ts = Date.now()
+  if( self.config.dev_mode ) ts = Date.now()
   async.series([
     function(async_cb){
       populateRawTraceTable(self, act, trace, pfkey, ts, async_cb)
