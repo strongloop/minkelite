@@ -1,7 +1,5 @@
 'use strict'
 
-// require('concurix')({accountKey: "wfp:minkelite", archiveInterval: 60000})
-
 module.exports = MinkeLite
 
 var CONFIG_JSON = require('./minkelite_config.json')
@@ -45,7 +43,15 @@ var SYSTEM_TABLES = {
       "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts INTEGER, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
     }
     ,{
+      "name": "meta_custom_transactions",
+      "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts INTEGER, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
+    }
+    ,{
       "name": "raw_transactions",
+      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
+    }
+    ,{
+      "name": "raw_custom_transactions",
       "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
     }
     ,{
@@ -313,7 +319,7 @@ function getMetaTransactions(self,req,res){
         if(!(row.host in DATA["hosts"])) DATA["hosts"][row.host] = {}
         if(!(row.pid in DATA["hosts"][row.host])) DATA["hosts"][row.host][row.pid] = []
         var transArray = decomposeTransBlob(row.trans)
-        reverseSortTransArray(transArray)
+        sortTransArray(transArray, isEdison(act))
         var maxTransCount = Math.min(transArray.length,self.config.max_transaction_count)
         for (var k=0; k<maxTransCount; k++){
           var tran = transArray[k][0]
@@ -326,7 +332,7 @@ function getMetaTransactions(self,req,res){
       for(var host in DATA["hosts"]){
         for(var pid in DATA["hosts"][host]){
           var transArrayInDATA = DATA["hosts"][host][pid]
-          reverseSortTransArray(transArrayInDATA)
+          sortTransArray(transArrayInDATA, isEdison(act))
           for(var i in transArrayInDATA){ transArrayInDATA[i] = transArrayInDATA[i][0] }
           var maxTransCount = Math.min(transArrayInDATA.length,self.config.max_transaction_count)
           for(var i=maxTransCount; i<transArrayInDATA.length; i++){ delete transArrayInDATA[i] }
@@ -335,13 +341,14 @@ function getMetaTransactions(self,req,res){
       }
       zipAndRespond(DATA,res)
       freeTranStrings()
-      if( self.config.verbose ) console.log("___ SELECT FROM meta_transactions for act :", act, "... done.")
+      if( self.config.verbose ) console.log("___ SELECT FROM meta tarnsactions for act :", act, "... done.")
     }
   }
 
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
   var query = null
-  var baseQuery = util.format("SELECT host,pid,trans FROM meta_transactions WHERE act='%s' AND ts > %s", act, chartTime)
+  var tableName = isEdison(act) ? "meta_custom_transactions":"meta_transactions"
+  var baseQuery = util.format("SELECT host,pid,trans FROM %s WHERE act='%s' AND ts > %s", tableName, act, chartTime)
   if ( HOST.length>0 && HOST!="0" && PID>0 ) {
     var querySpecificHostPid = baseQuery+" AND host='%s' AND pid=%s"
     query = util.format(querySpecificHostPid, HOST, PID.toString())
@@ -398,13 +405,14 @@ function getTransaction(self,req,res){
         }
       }
       zipAndRespond(DATA,res)
-      if( self.config.verbose ) console.log("___ SELECT FROM raw_transactions for act :", act, "... done.")
+      if( self.config.verbose ) console.log("___ SELECT FROM raw transactions for act :", act, "... done.")
     }
   }
 
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
   var query = null
-  var baseQuery1 = util.format("SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM raw_transactions WHERE act='%s' AND tran='%s' AND ts > %s ", act, tran, chartTime)
+  var tableName = isEdison(act) ? "raw_custom_transactions":"raw_transactions"
+  var baseQuery1 = util.format("SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM %s WHERE act='%s' AND tran='%s' AND ts > %s ", tableName, act, tran, chartTime)
   var baseQuery2 = LIMIT_TRANSACTION_INSTANCES ? util.format("ORDER BY max DESC LIMIT %s", self.config.max_transaction_count.toString()) : ""
   if ( HOST.length>0 && HOST!="0" && PID>0 ) {
     var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
@@ -461,10 +469,16 @@ function populateMinkeTables(self, act, trace){
     ,function(async_cb){
       populateRawMemoryPieces(self, act, trace, pfkey, ts)
       if ( self.config.verbose ) self._read_all_records("raw_memory_pieces", false)
-      populateRawTransactions(self, act, trace, pfkey, ts)
+      populateRawTransactions(self, act, trace, pfkey, ts, populateMetaTransactions)
       if ( self.config.verbose ) self._read_all_records("raw_transactions", false)
-      populateMetaTransactions(self, act, trace, pfkey, ts)
-      if ( self.config.verbose ) self._read_all_records("meta_transactions", false)
+      // populateMetaTransactions(self, act, trace, pfkey, ts)
+      // if ( self.config.verbose ) self._read_all_records("meta_transactions", false)
+      if ( trace.monitoring.custom_stats ){
+        populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMetaCustomTransactions)
+        if ( self.config.verbose ) self._read_all_records("raw_custom_transactions", false)
+        // populateMetaCustomTransactions(self, act, trace, pfkey, ts)
+        // if ( self.config.verbose ) self._read_all_records("meta_custom_transactions", false)        
+        }
       async_cb(null)
     }
   ],function(err,result){
@@ -558,7 +572,63 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts){
   })
 }
 
-function populateRawTransactions(self, act, trace, pfkey, ts){
+function getCustomStats(array){
+  var stats = {}
+  if( array && array.length>0 ){
+    stats.max = Math.max.apply(Math, array)
+    stats.min = Math.min.apply(Math, array)
+    stats.mean = statslite.mean(array)
+    stats.n = 1 // array.length
+    stats.standard_deviation = statslite.stdev(array)
+  }
+  return stats
+}
+
+function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta){
+  if ( !trace.monitoring || !trace.monitoring.custom_stats || Object.keys(trace.monitoring.custom_stats).length==0 ){
+    return
+  }
+  var db = self.db
+  var host = trace.monitoring.system_info.hostname
+  var pid = trace.metadata.pid
+  var act_host_pid = act+$$$+host+$$$+pid.toString()
+  async.waterfall([
+    function(async_cb){
+      var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
+      db.get(query, function(err,row){async_cb(null,row)})
+    }
+  ],function(err,stats_mean_sd){
+    var stmt = db.prepare("INSERT INTO raw_custom_transactions \
+      ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
+      ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
+    var params = {}
+    params.$pfkey = pfkey
+    params.$ts = ts
+    params.$act = act
+    params.$host = trace.monitoring.system_info.hostname
+    params.$pid = trace.metadata.pid
+    params.$lm_a = 0 // getLMa(stats_mean_sd, trace)
+    var act_ts_host_pid = act+$$$+ts.toString()+$$$+params.$host+$$$+params.$pid.toString()
+    if ( self.config.dev_mode ) act_ts_host_pid += $$$+md5((new Date()).toString()+Math.random().toString())
+    // for (var tran in trace.transactions.transactions){ // EDISON
+    for (var tran in trace.monitoring.custom_stats){
+      if( trace.monitoring.custom_stats[tran].length==0 ) continue // EDISON
+      var stats = getCustomStats(trace.monitoring.custom_stats[tran]) // EDISON
+      params.$act_tran_ts_host_pid = act_ts_host_pid+$$$+tran
+      params.$tran = tran
+      params.$max = stats.max
+      params.$mean = stats.mean
+      params.$min = stats.min
+      params.$n = stats.n
+      params.$sd = stats.standard_deviation
+      stmt.run(params)
+    }
+    stmt.finalize()
+    populateMeta(self, act, trace, pfkey, ts)
+  })
+}
+
+function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta){
   if ( !trace.transactions || !trace.transactions.transactions || Object.keys(trace.transactions.transactions).length==0 ){
     return
   }
@@ -596,6 +666,7 @@ function populateRawTransactions(self, act, trace, pfkey, ts){
       stmt.run(params)
     }
     stmt.finalize()
+    populateMeta(self, act, trace, pfkey, ts)
   })
 }
 
@@ -660,11 +731,69 @@ function freeTransArray(transArray){
   }
 }
 
-function reverseSortTransArray(transArray){
+function sortTransArray(transArray, sortByName){
+  if ( sortByName ) sortTransArrayByName(transArray)
+  else reverseSortTransArrayByValue(transArray)
+}
+
+function reverseSortTransArrayByValue(transArray){
   transArray.sort(function(x,y){
     if( x[1]<y[1] ) return 1
     if( x[1]>y[1] ) return -1
     return 0
+  })
+}
+
+function sortTransArrayByName(transArray){
+  transArray.sort(function(x,y){
+    if( x[0]<y[0] ) return -1
+    if( x[0]>y[0] ) return 1
+    return 0
+  })
+}
+
+function populateMetaCustomTransactions(self, act, trace, pfkey, ts){
+  if ( !trace.monitoring || !trace.monitoring.custom_stats || Object.keys(trace.monitoring.custom_stats).length==0 ){
+    return
+  }
+  var db = self.db
+  var hour = getHourInt(ts)
+  var host = trace.monitoring.system_info.hostname
+  var pid = trace.metadata.pid
+  var act_hour_host_pid = act+$$$+hour.toString()+$$$+host+$$$+pid.toString()
+  var queryA = util.format("SELECT trans FROM meta_custom_transactions WHERE act_hour_host_pid='%s'", act_hour_host_pid)
+  var queryB ="INSERT OR REPLACE INTO meta_custom_transactions \
+    ( act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
+    ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)"
+  var params = {}
+  params.$act_hour_host_pid = act_hour_host_pid
+  params.$act = act
+  params.$ts = ts
+  params.$hour = hour
+  params.$host = host
+  params.$pid = pid
+  if ( self.config.verbose ) process.stdout.write("___ INSERT OR REPLACE meta_custom_transactions")
+  db.serialize()
+  var stmt = db.prepare(queryB)
+  db.get(queryA, function(err,row){
+    var transArray = []
+    if( row ) transArray = decomposeTransBlob(row.trans)
+    // for (var tran in trace.transactions.transactions){ // EDISON
+    for (var tran in trace.monitoring.custom_stats){
+      if( trace.monitoring.custom_stats[tran].length==0 ) continue // EDISON
+      var value = getCustomStats(trace.monitoring.custom_stats[tran]).max
+      if ( ! isInTransArray(tran,value,transArray) ) transArray.push([tran,value])
+    }
+
+    if( transArray.length>0 ) { // EDISON
+      params.$trans = assembleTransBlob(transArray)
+      stmt.run(params)
+    }
+    stmt.finalize()
+    db.parallelize()
+    freeTransArray(transArray)
+    delete params.$trans
+    if ( self.config.verbose ) console.log(" for",act_hour_host_pid,"... done.")
   })
 }
 
@@ -889,6 +1018,10 @@ function compilePfkey(self, act, trace){
 function freePfkey(pfkey){
   delete pfkey[0]
   delete pfkey[1]
+}
+
+function isEdison(act){
+  return act.indexOf("edison:")==0
 }
 
 function parseInteger(str){
