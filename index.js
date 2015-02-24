@@ -65,28 +65,27 @@ function MinkeLite(config) {
   if (!(this instanceof MinkeLite)) return new MinkeLite(config)
   var MY_CONFIG = config ? xtend(SYSTEM_TABLES, config) : SYSTEM_TABLES
   this.config = xtend(MY_CONFIG, CONFIG_JSON)
-  this.config.dev_mode = (this.config.dev_mode!=null) ? this.config.dev_mode : false
-  this.config.verbose = (this.config.verbose!=null) ?  this.config.verbose : false
-  if( DISABLE_VERBOSE_MODE ) this.config.verbose = false
-  this.config.in_memory = (this.config.in_memory!=null) ? this.config.in_memory : true
+  if( this.config.dev_mode==null ) this.config.dev_mode = false
+  if( DISABLE_VERBOSE_MODE || this.config.verbose==null ) this.config.verbose = false
+  if( this.config.in_memory==null ) this.config.in_memory = true
   this.config.dir_path = this.config.dir_path || "./"
   this.config.db_name = this.config.in_memory ? ":memory:" : ( this.config.db_name || "minkelite.db" )
-  this.config.sqlite3_verbose = (this.config.sqlite3_verbose!=null) ? this.config.sqlite3_verbose : false
-  if ( this.config.sqlite3_verbose ) sqlite3 = sqlite3.verbose();
+  if( this.config.sqlite3_verbose==null ) this.config.sqlite3_verbose = false
+  if( this.config.sqlite3_verbose ) sqlite3 = sqlite3.verbose();
   this.config.stale_minutes = this.config.stale_minutes || 1*24*60
   this.config.chart_minutes = this.config.chart_minutes || 1*24*60
   this.config.pruning_interval_seconds = this.config.pruning_interval_seconds || 10*60
-  this.config.start_server = (this.config.start_server!=null) ? this.config.start_server : false
+  if( this.config.start_server==null) this.config.start_server = false
   this.config.server_port = this.config.server_port || 8103
   this.config.max_transaction_count = this.config.max_transaction_count || 20
   this.config.stats_interval_seconds = this.config.stats_interval_seconds || 10*60
-  this.config.compress_trace_file = this.config.compress_trace_file || true
+  if(this.config.compress_trace_file==null) this.config.compress_trace_file = true
 
   this._init_db()
   this._init_server()
   this.pruner = (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0 ) ? null : setInterval(deleteAllStaleRecords.bind([this,this.config.stale_minutes,"minute"]), this.config.pruning_interval_seconds*1000)
   this.model_builder = setInterval(buildStats.bind([this,this.config.stale_minutes,"minute"]), this.config.stats_interval_seconds*1000)
-  if ( this.config.verbose ) console.log(this)
+  if( this.config.verbose ) console.log(this)
 }
 
 MinkeLite.prototype.shutdown = function (cb) {
