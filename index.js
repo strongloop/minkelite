@@ -72,14 +72,14 @@ function MinkeLite(config) {
   this.config.db_name = this.config.in_memory ? ":memory:" : ( this.config.db_name || "minkelite.db" )
   if( this.config.sqlite3_verbose==null ) this.config.sqlite3_verbose = false
   if( this.config.sqlite3_verbose ) sqlite3 = sqlite3.verbose();
-  this.config.stale_minutes = this.config.stale_minutes || 1*24*60
-  this.config.chart_minutes = this.config.chart_minutes || 1*24*60
-  this.config.pruning_interval_seconds = this.config.pruning_interval_seconds || 10*60
-  if( this.config.start_server==null) this.config.start_server = false
-  this.config.server_port = this.config.server_port || 8103
-  this.config.max_transaction_count = this.config.max_transaction_count || 20
-  this.config.stats_interval_seconds = this.config.stats_interval_seconds || 10*60
-  if(this.config.compress_trace_file==null) this.config.compress_trace_file = true
+  if( this.config.stale_minutes==null ) this.config.stale_minutes = 1*24*60
+  if( this.config.chart_minutes==null ) this.config.chart_minutes = 1*24*60
+  if( this.config.pruning_interval_seconds==null ) this.config.pruning_interval_seconds = 10*60
+  if( this.config.start_server==null ) this.config.start_server = false
+  if( this.config.server_port==null ) this.config.server_port = 8103
+  if( this.config.max_transaction_count==null ) this.config.max_transaction_count = 20
+  if( this.config.stats_interval_seconds==null ) this.config.stats_interval_seconds = 10*60
+  if( this.config.compress_trace_file==null ) this.config.compress_trace_file = true
 
   this._init_db()
   this._init_server()
@@ -99,7 +99,7 @@ MinkeLite.prototype.shutdown = function (cb) {
     this.model_builder = null
   }
   if ( this.db ){
-    his.db.close()
+    this.db.close()
     this.db = null
   }
   if ( this.express_server ){
@@ -112,7 +112,11 @@ MinkeLite.prototype.get_express_app = function () {
   return this.express_app
 }
 
-MinkeLite.prototype.start_server = function () {
+MinkeLite.prototype.getExpressApp = function () {
+  return this.express_app
+}
+
+MinkeLite.prototype.startServer = function () {
   this.express_server = this.express_app.listen(this.config.server_port)
 }
 
@@ -136,29 +140,27 @@ MinkeLite.prototype._init_server = function () {
   var jsonParser = bodyParser.json({limit:100000000})
   this.express_app = express()
     .post("/post_raw_pieces/:version", jsonParser,
-      function(req,res){postRawPieces(this,req,res)}.bind(this))
+      function(req,res){postRawPiecesRoute(this,req,res)}.bind(this))
     .post("/results/:version", jsonParser,
-      function(req,res){postRawPieces(this,req,res)}.bind(this))
+      function(req,res){postRawPiecesRoute(this,req,res)}.bind(this))
     .get("/get_raw_pieces/:pfkey",
-      function(req,res){getRawPieces(this,req,res)}.bind(this))
+      function(req,res){getRawPiecesRoute(this,req,res)}.bind(this))
     .get("/get_raw_memory_pieces/:act/:host/:pid",
-      function(req,res){getRawMemoryPieces(this,req,res)}.bind(this))
+      function(req,res){getRawMemoryPiecesRoute(this,req,res)}.bind(this))
     .get("/get_meta_transactions/:act/:host/:pid",
-      function(req,res){getMetaTransactions(this,req,res)}.bind(this))
+      function(req,res){getMetaTransactionsRoute(this,req,res)}.bind(this))
     .get("/get_transaction/:act/:transaction/:host/:pid",
-      function(req,res){getTransaction(this,req,res)}.bind(this))
+      function(req,res){getTransactionRoute(this,req,res)}.bind(this))
     .get("/get_host_pid_list/:act",
-      function(req,res){getHostPidList(this,req,res)}.bind(this));
+      function(req,res){getHostPidListRoute(this,req,res)}.bind(this));
   this.express_server = this.config.start_server ? this.express_app.listen(this.config.server_port,
     function(){if(this.config.verbose) console.log("MinkeLite is listening on " + this.config.server_port)}.bind(this)) : null
 }
 
-function sendCompressedTrace(err,row){
-  var self = this[0]
-  var res = this[1]
+function sendCompressedTrace(traceCompressed,self,res){
   var trace = TRACE_NOT_FOUND_GZIPPED
-  if ( row && row.trace ){
-    trace = row.trace
+  if ( traceCompressed ){
+    trace = traceCompressed
     if( self.config.verbose ) console.log("___ SELECT trace(compressed) for pfkey :", pfkey, '... done.')
   }
   writeHeaderJSON(res)
@@ -166,11 +168,9 @@ function sendCompressedTrace(err,row){
   res.end()  
 }
 
-function sendUncompressedTrace(err,row){
-  var self = this[0]
-  var res = this[1]
-  if ( row && row.trace ){
-    zlib.unzip(row.trace, function(zlibErr, buf){
+function sendUncompressedTrace(traceCompressed,self,res){
+  if ( traceCompressed ){
+    zlib.unzip(traceCompressed, function(zlibErr, buf){
       var traceStr = buf.toString('utf-8');
       writeHeaderJSON(res,false)
       res.write(traceStr)
@@ -184,19 +184,49 @@ function sendUncompressedTrace(err,row){
   }
 }
 
-function getRawPieces(self,req,res){
+function getRawPiecesRoute(self,req,res){
   // "/get_raw_pieces/:pfkey"
   var pfkey = decodeURIComponent(req.params.pfkey)
-  var db = self.db
-  var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey)
-  var callback = self.config.compress_trace_file ? sendCompressedTrace : sendUncompressedTrace
-  db.get(query, callback.bind([self,res]))
+  self.getRawPieces(pfkey,false,function(traceCompressed){
+    var sendCallback = self.config.compress_trace_file ? sendCompressedTrace : sendUncompressedTrace
+    sendCallback(traceCompressed,self,res)
+  })
 }
 
-function getHostPidList(self,req,res){
+MinkeLite.prototype.getRawPieces = function (pfkey,uncompress,callback) {
+  // "/get_raw_pieces/:pfkey"
+  // callback gets a string of either gzip compressed or uncompressed trace JSON
+  if( this.config.verbose ) console.log("___ get_raw_pieces called with uncompress:",uncompress,"for pfkey:",pfkey)
+  var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey)
+  this.db.get(query, function(err,row){
+    var traceCompressed = (row && row.trace) ? row.trace : null
+    if( err || traceCompressed==null ){ callback(null); return }
+    if( uncompress ) {
+      zlib.unzip(traceCompressed, function(zlibErr, buf){
+        if( zlibErr ){callback(null)}
+        else {
+          var traceStr = buf.toString('utf-8');
+          callback(traceStr)
+        }
+      })      
+    } else {
+      callback(traceCompressed)
+    }
+  })
+}
+
+function getHostPidListRoute(self,req,res){
   // "/get_host_pid_list/:act
   var act = decodeURIComponent(req.params.act)
-  var db = self.db
+  self.getHostPidList(act,function(traceObject){zipAndRespond(traceObject,res)}) 
+}
+
+MinkeLite.prototype.getHostPidList = function (act,callback){
+  // "/get_host_pid_list/:act
+  // callback gets the DATA object
+  var self = this
+  if( self.config.verbose ) console.log("___ get_host_pid_list called for act:",act)
+  var db = this.db
   var DATA = {}
   DATA["act"] = act
   DATA["hosts"] = []
@@ -219,8 +249,8 @@ function getHostPidList(self,req,res){
           hosts.push({"host":row.host,"pids":[row.pid]})
         }
       }
-      zipAndRespond(DATA,res)
       if( self.config.verbose ) console.log("___ SELECT host,pid FROM raw_memory_pieces for act :", act, "... done.")
+      callback(DATA)
     }
   }
 
@@ -230,11 +260,19 @@ function getHostPidList(self,req,res){
   db.all(query,getRowsHostPidList)
 }
 
-function getRawMemoryPieces(self,req,res){
+function getRawMemoryPiecesRoute(self,req,res){
   // "/get_raw_memory_pieces/:act/:host/:pid"
   var act = decodeURIComponent(req.params.act)
-  var HOST = decodeURIComponent(req.params.host)
-  var PID = parseInteger(decodeURIComponent(req.params.pid))
+  var host = decodeURIComponent(req.params.host)
+  var pid = parseInteger(decodeURIComponent(req.params.pid))
+  self.getRawMemoryPieces(act,host,pid,function(traceObject){zipAndRespond(traceObject,res)})
+}
+
+MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
+  // "/get_raw_memory_pieces/:act/:host/:pid"
+  // callback gets the DATA object
+  var self = this
+  if( self.config.verbose ) console.log("___ get_raw_memory_pieces called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
   var DATA = {}
   DATA["act"] = act
@@ -267,8 +305,8 @@ function getRawMemoryPieces(self,req,res){
           })
         }
       }
-      zipAndRespond(DATA,res)
       if( self.config.verbose ) console.log("___ SELECT FROM raw_memory_pieces for act :", act, "... done.")
+      callback(DATA)
     }
   }
 
@@ -276,39 +314,41 @@ function getRawMemoryPieces(self,req,res){
   var query = null
   var baseQuery1 = util.format("SELECT pfkey,ts,host,pid,p_mr,p_mt,p_mu,p_ut,s_la,lm_a FROM raw_memory_pieces WHERE act='%s' AND ts > %s ", act, chartTime)
   var baseQuery2 = "ORDER BY ts"
-  if ( HOST.length>0 && HOST!="0" && PID>0 ) {
+  if ( host.length>0 && host!="0" && pid>0 ) {
     var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
-    query = util.format(querySpecificHostPid, HOST, PID.toString())
-  } else if ( HOST.length>0 && HOST!="0" && PID==0 ) {
+    query = util.format(querySpecificHostPid, host, pid.toString())
+  } else if ( host.length>0 && host!="0" && pid==0 ) {
     var querySpecificHost = baseQuery1+"AND host='%s' "+baseQuery2
-    query = util.format(querySpecificHost, HOST)
-  } else if ( (HOST.length==0 || HOST=="0") && PID>0 ) {
+    query = util.format(querySpecificHost, host)
+  } else if ( (host.length==0 || host=="0") && pid>0 ) {
     var querySpecificPid = baseQuery1+"AND pid=%s "+baseQuery2
-    query = util.format(querySpecificPid, PID.toString())
+    query = util.format(querySpecificPid, pid.toString())
   } else {
     query = baseQuery1+baseQuery2
   }
   db.all(query,getRowsRawMemoryPieces)
 }
 
-function getMetaTransactions(self,req,res){
+function getMetaTransactionsRoute(self,req,res){
   // "/get_meta_transactions/:act/:host/:pid"
   var act = decodeURIComponent(req.params.act)
-  var HOST = decodeURIComponent(req.params.host)
-  var PID = parseInteger(decodeURIComponent(req.params.pid))
+  var host = decodeURIComponent(req.params.host)
+  var pid = parseInteger(decodeURIComponent(req.params.pid))
+  self.getMetaTransactions(act,host,pid,function(traceObject,callback){
+    zipAndRespond(traceObject,res)
+    callback(traceObject)
+  })
+}
+
+MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
+  // "/get_meta_transactions/:act/:host/:pid"
+  // callback gets the DATA object and callback which must be called with DATA when done with DATA
+  var self = this
+  if( self.config.verbose ) console.log("___ get_meta_transactions called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
   var DATA = {}
   DATA["act"] = act
   DATA["hosts"] = {}
-
-  function freeTranStrings(){
-    for(var host in DATA["hosts"]){
-      for(var pid in DATA["hosts"][host]){
-        var tranStrings = DATA["hosts"][host][pid]
-        for(var i in tranStrings){delete tranStrings[i]}
-      }
-    }
-  }
 
   function getRowsMetaTransactions(err, rows){
     if (err){console.log("ERROR:",err)}
@@ -338,9 +378,8 @@ function getMetaTransactions(self,req,res){
           transArrayInDATA.splice(maxTransCount)
         }
       }
-      zipAndRespond(DATA,res)
-      freeTranStrings()
       if( self.config.verbose ) console.log("___ SELECT FROM meta tarnsactions for act :", act, "... done.")
+      callback(DATA,freeTransStrings)
     }
   }
 
@@ -348,27 +387,35 @@ function getMetaTransactions(self,req,res){
   var query = null
   var tableName = isEdison(act) ? "meta_custom_transactions":"meta_transactions"
   var baseQuery = util.format("SELECT host,pid,trans FROM %s WHERE act='%s' AND ts > %s", tableName, act, chartTime)
-  if ( HOST.length>0 && HOST!="0" && PID>0 ) {
+  if ( host.length>0 && host!="0" && pid>0 ) {
     var querySpecificHostPid = baseQuery+" AND host='%s' AND pid=%s"
-    query = util.format(querySpecificHostPid, HOST, PID.toString())
-  } else if ( HOST.length>0 && HOST!="0" && PID==0 ) {
+    query = util.format(querySpecificHostPid, host, pid.toString())
+  } else if ( host.length>0 && host!="0" && pid==0 ) {
     var querySpecificHost = baseQuery+" AND host='%s'"
-    query = util.format(querySpecificHost, HOST)
-  } else if ( (HOST.length==0 || HOST=="0") && PID>0 ) {
+    query = util.format(querySpecificHost, host)
+  } else if ( (host.length==0 || host=="0") && pid>0 ) {
     var querySpecificPid = baseQuery+" AND pid=%s"
-    query = util.format(querySpecificPid, PID.toString())
+    query = util.format(querySpecificPid, pid.toString())
   } else {
     query = baseQuery
   }
   db.all(query,getRowsMetaTransactions)
 }
 
-function getTransaction(self,req,res){
+function getTransactionRoute(self,req,res){
   // "/get_transaction/:act/:transaction/:host/:pid"
   var act = decodeURIComponent(req.params.act)
   var tran = req.params.transaction
-  var HOST = decodeURIComponent(req.params.host)
-  var PID = parseInteger(decodeURIComponent(req.params.pid))
+  var host = decodeURIComponent(req.params.host)
+  var pid = parseInteger(decodeURIComponent(req.params.pid))
+  self.getTransaction(act,tran,host,pid,function(traceObject){zipAndRespond(traceObject,res)})
+}
+
+MinkeLite.prototype.getTransaction = function (act,tran,host,pid,callback){
+  // "/get_transaction/:act/:transaction/:host/:pid"
+  // callback gets the DATA object
+  var self = this
+  if( self.config.verbose ) console.log("___ get_transaction called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
   var DATA = {}
   DATA["act"] = act
@@ -403,8 +450,8 @@ function getTransaction(self,req,res){
           })
         }
       }
-      zipAndRespond(DATA,res)
       if( self.config.verbose ) console.log("___ SELECT FROM raw transactions for act :", act, "... done.")
+      callback(DATA)
     }
   }
 
@@ -413,72 +460,91 @@ function getTransaction(self,req,res){
   var tableName = isEdison(act) ? "raw_custom_transactions":"raw_transactions"
   var baseQuery1 = util.format("SELECT tran,pfkey,ts,host,pid,max,mean,min,n,sd,lm_a FROM %s WHERE act='%s' AND tran='%s' AND ts > %s ", tableName, act, tran, chartTime)
   var baseQuery2 = LIMIT_TRANSACTION_INSTANCES ? util.format("ORDER BY max DESC LIMIT %s", self.config.max_transaction_count.toString()) : ""
-  if ( HOST.length>0 && HOST!="0" && PID>0 ) {
+  if ( host.length>0 && host!="0" && pid>0 ) {
     var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
-    query = util.format(querySpecificHostPid, HOST, PID.toString())
-  } else if ( HOST.length>0 && HOST!="0" && PID==0 ) {
+    query = util.format(querySpecificHostPid, host, pid.toString())
+  } else if ( host.length>0 && host!="0" && pid==0 ) {
     var querySpecificHost = baseQuery1+"AND host='%s' "+baseQuery2
-    query = util.format(querySpecificHost, HOST)
-  } else if ( (HOST.length==0 || HOST=="0") && PID>0 ) {
+    query = util.format(querySpecificHost, host)
+  } else if ( (host.length==0 || host=="0") && pid>0 ) {
     var querySpecificPid = baseQuery1+"AND pid=%s "+baseQuery2
-    query = util.format(querySpecificPid, PID.toString())
+    query = util.format(querySpecificPid, pid.toString())
   } else {
     query = baseQuery1+baseQuery2
   }
   db.all(query,getRowsTransactions)
 }
 
-function postRawPieces(self,req,res){
+function postRawPiecesRoute(self,req,res){
+  // "/post_raw_pieces/:version"
+  // "/results/:version"
+  var act = req.headers['concurix-api-key']
   var version = decodeURIComponent(req.params.version)
+
+  self.postRawPieces(version, act, req.body, function(err){
+    var returnCode = err ? 400 : 202
+    res.writeHead(returnCode)
+    res.end()
+  })
+}
+
+MinkeLite.prototype.postRawPieces = function (version,act,trace,callback){
+  // "/post_raw_pieces/:version"
+  // "/results/:version"
+  // returns true when post succeded, false when failed
+  var self = this
+  if( self.config.verbose ) console.log("___ post_raw_pieces called with version:", version)
   for(var i in SUPPORTED_TRACER_VERSIONS){
     if( version.indexOf(SUPPORTED_TRACER_VERSIONS[i])==0 ){
-      var act = req.headers['concurix-api-key']
-      self._write_raw_trace(act, req.body)
-      res.writeHead(202)
-      res.end()
+      // self._write_raw_trace(act, trace, callback)
+      populateMinkeTables(self, act, trace, callback)
       return
     }
   }
-  res.writeHead(400)
-  res.end()
+  callback(true)
 }
 
-MinkeLite.prototype._write_raw_trace = function (act, trace) {
+MinkeLite.prototype._write_raw_trace = function (act, trace, callback) {
   // exitIfNotReady(this, "_write_raw_trace")
   try {
-    populateMinkeTables(this, act, trace)
+    populateMinkeTables(this, act, trace, callback)
   } catch (e) {
     if ( this.config.verbose ) console.log("*** Ignoring a duplicate insert for act :", act, e)
   }
 }
 
-  // "raw_trace", "raw_memory_pieces", "meta_transactions", "raw_transactions", "model_mean_sd"
-function populateMinkeTables(self, act, trace){
+function populateMinkeTables(self, act, trace, callback){
   if( trace.monitoring.system_info.arch=="ia32" && trace.metadata.timestamp < ago(10,"minutes") ) trace.metadata.timestamp = Date.now()
   var pfkeys = compilePfkey(self, act, trace)
   var pfkey = pfkeys[0]
   if( self.config.verbose ) console.log(pfkeys[1],"____________________________________________________")
   var ts = trace.metadata.timestamp
   if( self.config.dev_mode ) ts = Date.now()
-  async.series([
+  async.parallel([
     function(async_cb){
       populateRawTraceTable(self, act, trace, pfkey, ts, async_cb)
       if ( self.config.verbose ) self._read_all_records("raw_trace", false)
     }
     ,function(async_cb){
-      populateRawMemoryPieces(self, act, trace, pfkey, ts)
+      populateRawMemoryPieces(self, act, trace, pfkey, ts, async_cb)
       if ( self.config.verbose ) self._read_all_records("raw_memory_pieces", false)
-      populateRawTransactions(self, act, trace, pfkey, ts, populateMetaTransactions)
+    }
+    ,function(async_cb){
+      populateRawTransactions(self, act, trace, pfkey, ts, populateMetaTransactions, async_cb)
       if ( self.config.verbose ) self._read_all_records("raw_transactions", false)
       // populateMetaTransactions(self, act, trace, pfkey, ts)
       // if ( self.config.verbose ) self._read_all_records("meta_transactions", false)
+    }
+    ,function(async_cb){
       if ( trace.monitoring.custom_stats ){
-        populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMetaCustomTransactions)
+        populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMetaCustomTransactions, async_cb)
         if ( self.config.verbose ) self._read_all_records("raw_custom_transactions", false)
         // populateMetaCustomTransactions(self, act, trace, pfkey, ts)
         // if ( self.config.verbose ) self._read_all_records("meta_custom_transactions", false)        
         }
-      async_cb(null)
+      else {
+        async_cb(null)
+      }
     }
   ],function(err,result){
     freePfkey(pfkeys)
@@ -486,6 +552,7 @@ function populateMinkeTables(self, act, trace){
       var tsStr = (new Date(ts)).toString()
       console.log("Trace insertion failure at", tsStr,"for",act,":",err)
     }
+    callback(err)
   })
 }
 
@@ -540,7 +607,7 @@ function getLMa(stats, trace){
   return  anomaly ? 2 : 0
 }
 
-function populateRawMemoryPieces(self, act, trace, pfkey, ts){
+function populateRawMemoryPieces(self, act, trace, pfkey, ts, cb){
   var db = self.db
   var host = trace.monitoring.system_info.hostname
   var pid = trace.metadata.pid
@@ -551,6 +618,7 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts){
       db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
+    if( err ){cb(err);return}
     var stmt = db.prepare("INSERT INTO raw_memory_pieces \
       ( pfkey, ts, act, host, pid, lm_a, p_mr, p_mt, p_mu, p_ut, s_la) VALUES \
       ($pfkey,$ts,$act,$host,$pid,$lm_a,$p_mr,$p_mt,$p_mu,$p_ut,$s_la)")
@@ -568,6 +636,7 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts){
     params.$lm_a = getLMa(stats_mean_sd, trace)
     stmt.run(params)
     stmt.finalize()
+    cb(err)
   })
 }
 
@@ -583,8 +652,9 @@ function getCustomStats(array){
   return stats
 }
 
-function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta){
+function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta, cb){
   if ( !trace.monitoring || !trace.monitoring.custom_stats || Object.keys(trace.monitoring.custom_stats).length==0 ){
+    cb(null)
     return
   }
   var db = self.db
@@ -597,6 +667,7 @@ function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta
       db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
+    if( err ){cb(err);return}
     var stmt = db.prepare("INSERT INTO raw_custom_transactions \
       ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
       ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
@@ -623,12 +694,13 @@ function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta
       stmt.run(params)
     }
     stmt.finalize()
-    populateMeta(self, act, trace, pfkey, ts)
+    populateMeta(self, act, trace, pfkey, ts, cb)
   })
 }
 
-function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta){
+function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta, cb){
   if ( !trace.transactions || !trace.transactions.transactions || Object.keys(trace.transactions.transactions).length==0 ){
+    cb(null)
     return
   }
   var db = self.db
@@ -641,6 +713,7 @@ function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta){
       db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
+    if( err ){cb(err);return}
     var stmt = db.prepare("INSERT INTO raw_transactions \
       ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
       ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
@@ -665,7 +738,7 @@ function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta){
       stmt.run(params)
     }
     stmt.finalize()
-    populateMeta(self, act, trace, pfkey, ts)
+    populateMeta(self, act, trace, pfkey, ts, cb)
   })
 }
 
@@ -723,6 +796,18 @@ function isInTransArray(tran,value,transArray){
   return false
 }
 
+function freeTransStrings(data){
+  for(var host in data["hosts"]){
+    for(var pid in data["hosts"][host]){
+      var transStrings = data["hosts"][host][pid]
+      for(var i in transStrings){
+        // console.log("... freeing:",transStrings[i])
+        delete transStrings[i]
+      }
+    }
+  }
+}
+
 function freeTransArray(transArray){
   for(var i in transArray){
     delete transArray[i][0]
@@ -751,8 +836,9 @@ function sortTransArrayByName(transArray){
   })
 }
 
-function populateMetaCustomTransactions(self, act, trace, pfkey, ts){
+function populateMetaCustomTransactions(self, act, trace, pfkey, ts, cb){
   if ( !trace.monitoring || !trace.monitoring.custom_stats || Object.keys(trace.monitoring.custom_stats).length==0 ){
+    cb(null)
     return
   }
   var db = self.db
@@ -775,6 +861,7 @@ function populateMetaCustomTransactions(self, act, trace, pfkey, ts){
   db.serialize()
   var stmt = db.prepare(queryB)
   db.get(queryA, function(err,row){
+    if( err ){db.parallelize();cb(err);return}
     var transArray = []
     if( row ) transArray = decomposeTransBlob(row.trans)
     // for (var tran in trace.transactions.transactions){ // EDISON
@@ -793,12 +880,13 @@ function populateMetaCustomTransactions(self, act, trace, pfkey, ts){
     freeTransArray(transArray)
     delete params.$trans
     if ( self.config.verbose ) console.log(" for",act_hour_host_pid,"... done.")
+    cb(err)
   })
 }
 
-function populateMetaTransactions(self, act, trace, pfkey, ts){
+function populateMetaTransactions(self, act, trace, pfkey, ts, cb){
   if ( !trace.transactions || !trace.transactions.transactions || Object.keys(trace.transactions.transactions).length==0 ){
-    if ( self.config.dev_mode ) console.log("meta_transactions - trans in trace empty ... skipped.")
+    cb(null)
     return
   }
   var db = self.db
@@ -821,6 +909,7 @@ function populateMetaTransactions(self, act, trace, pfkey, ts){
   db.serialize()
   var stmt = db.prepare(queryB)
   db.get(queryA, function(err,row){
+    if( err ){db.parallelize();cb(err);return}
     var transArray = []
     if( row ) transArray = decomposeTransBlob(row.trans)
     for (var tran in trace.transactions.transactions){
@@ -834,6 +923,7 @@ function populateMetaTransactions(self, act, trace, pfkey, ts){
     freeTransArray(transArray)
     delete params.$trans
     if ( self.config.verbose ) console.log(" for",act_hour_host_pid,"... done.")
+    cb(err)
   })
 }
 
