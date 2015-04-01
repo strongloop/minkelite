@@ -37,11 +37,11 @@
   "devDependencies": {
     "tap": "~0.7.0"
   },
-    "license": {
+  "license": {
     "name": "StrongLoop",
     "url": "https://github.com/strongloop/minkelite/blob/master/LICENSE"
   },
-"engine": {
+  "engine": {
     "node": ">=0.10.0"
   }
 }
