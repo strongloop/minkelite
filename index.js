@@ -6,6 +6,7 @@ var CONFIG_JSON = require('./minkelite_config.json')
 var ago = require("ago")
 var async = require("async")
 var bodyParser = require('body-parser')
+var EventEmitter = require('events').EventEmitter
 var express = require('express')
 var fs = require("fs")
 var md5 = require('MD5')
@@ -61,8 +62,11 @@ var SYSTEM_TABLES = {
   ] 
 }
 
+util.inherits(MinkeLite, EventEmitter)
+
 function MinkeLite(config) {
   if (!(this instanceof MinkeLite)) return new MinkeLite(config)
+  EventEmitter.call(this)
   var MY_CONFIG = config ? xtend(SYSTEM_TABLES, config) : SYSTEM_TABLES
   this.config = xtend(MY_CONFIG, CONFIG_JSON)
   if( this.config.dev_mode==null ) this.config.dev_mode = false
@@ -125,15 +129,26 @@ MinkeLite.prototype._init_db = function () {
   this.db_path = this.config.in_memory ? this.config.db_name : this.config.dir_path+this.config.db_name
   this.db_exists = this.config.in_memory ? false : fs.existsSync(this.db_path)
   this.db = new sqlite3.Database(this.db_path)
-  if ( this.db_exists ) return
-  this.db_being_initialized = true
-  for ( var i in this.config.system_tables ){
-    var tbl = this.config.system_tables[i]
-    var query = util.format("CREATE TABLE %s (%s) WITHOUT ROWID", tbl.name, tbl.columns)
-    this.db.run(query, printRow)
+  if ( this.db_exists ) {
+    this.db.on('open', this.emit.bind(this, 'ready'))
+    return
   }
-  this.db_being_initialized = false
-  this.db_exists = true
+  this.db_being_initialized = true
+  var self = this;
+  this.db.on('open', function() {
+    async.each(self.config.system_tables, function(tbl, next) {
+      var query = util.format("CREATE TABLE %s (%s) WITHOUT ROWID", tbl.name, tbl.columns)
+      self.db.run(query, function(err) {
+        printRow.apply(this, arguments)
+        next(err)
+      });
+    }, function(err) {
+      self.db_being_initialized = false
+      if (err) self.emit('error', err)
+      else self.emit('ready')
+    })
+    self.db_exists = true
+  });
 }
 
 MinkeLite.prototype._init_server = function () {

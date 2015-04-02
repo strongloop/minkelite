@@ -28,6 +28,13 @@ tap.on('end', function(){
   ML.shutdown();
 });
 
+tap.test('emits "ready" when ready', function(t) {
+  ML.on('ready', function() {
+    t.ok(true, 'sqlite3 DB is ready for writing');
+    t.end();
+  });
+});
+
 tap.test('postRawPieces Test', function(t) {
   ML.postRawPieces(VERSION,ACT,trace, function(err){
     t.ok( ! err,'postRawPieces writes the trace to the MinkeLite DB');
