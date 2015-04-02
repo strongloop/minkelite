@@ -31,7 +31,7 @@ tap.on('end', function(){
 tap.test('postRawPieces Test', function(t) {
   ML.postRawPieces(VERSION,ACT,trace, function(err){
     t.ok( ! err,'postRawPieces writes the trace to the MinkeLite DB');
-    t.end();
+    setTimeout(function(){this.end()}.bind(t),2000);
   });
 });
 
