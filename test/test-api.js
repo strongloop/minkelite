@@ -24,10 +24,6 @@ var TRANSACTION = "request GET http://localhost:8123/";
 // cd minkelite
 // node ./node_modules/tap/bin/tap.js test/test-api.js
 
-tap.on('end', function(){
-  ML.shutdown();
-});
-
 tap.test('emits "ready" when ready', function(t) {
   ML.on('ready', function() {
     t.ok(true, 'sqlite3 DB is ready for writing');
@@ -107,3 +103,9 @@ tap.test('getTransaction Test', function(t) {
   });
 });
 
+tap.test('shutdown', function(t) {
+  ML.shutdown(function(err) {
+    t.ifError(err, 'should shutdown cleanly');
+    t.end();
+  });
+});

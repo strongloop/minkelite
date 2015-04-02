@@ -102,14 +102,16 @@ MinkeLite.prototype.shutdown = function (cb) {
     clearInterval(this.model_builder)
     this.model_builder = null
   }
-  if ( this.db ){
-    this.db.close()
-    this.db = null
+  var tasks = [];
+  if (this.express_server) {
+    tasks.push(this.express_server.close.bind(this.express_server))
   }
-  if ( this.express_server ){
-    this.express_server.close()
-    this.express_server = null
+  if (this.db) {
+    tasks.push(this.db.close.bind(this.db))
   }
+  this.db = null
+  this.express_server = null
+  async.series(tasks, cb)
 }
 
 MinkeLite.prototype.get_express_app = function () {
