@@ -103,6 +103,44 @@ tap.test('getTransaction Test', function(t) {
   });
 });
 
+tap.test('_sort_db_transactions Test', function(t) {
+  var input = [
+    ['Redis query', 1],
+    ['PostgreSQL query', 1],
+    ['MySQL query', 1],
+    ['MongoDB query', 1],
+    ['Memcached query', 1],
+    ['Redis query', 10],
+    ['PostgreSQL query', 10],
+    ['MySQL query', 10],
+    ['MongoDB query', 10],
+    ['Memcached query', 10],
+    ['serve query', 1],
+    ['request query', 10]
+  ];
+  var output = [
+    ['request query', 10],
+    ['serve query', 1],
+    ['Memcached query', 10],
+    ['Memcached query', 1],
+    ['MongoDB query', 10],
+    ['MongoDB query', 1],
+    ['MySQL query', 10],
+    ['MySQL query', 1],
+    ['PostgreSQL query', 10],
+    ['PostgreSQL query', 1],
+    ['Redis query', 10],
+    ['Redis query', 1]
+  ];
+  ML._sort_db_transactions(input);
+  t.equal(input.length,output.length,"array size does not change after db transaciton sort");
+  for(var i in input){
+    t.equal(input[i][0],output[i][0],"string: db transactions are grouped and sorted in each group: item "+i.toString());
+    t.equal(input[i][1],output[i][1]," value: db transactions are grouped and sorted in each group: item "+i.toString());
+  }
+  t.end();
+});
+
 tap.test('shutdown', function(t) {
   ML.shutdown(function(err) {
     t.ifError(err, 'should shutdown cleanly');

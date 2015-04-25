@@ -357,6 +357,15 @@ function getMetaTransactionsRoute(self,req,res){
   })
 }
 
+MinkeLite.prototype._sort_db_transactions = function (transArray) {
+  var re = /^(Memcached|MongoDB|MySQL|PostgreSQL|Redis)/;
+  transArray.sort(function(a,b){
+    var aa = (re.exec(a[0])||'')[0]||''
+    var bb = (re.exec(b[0])||'')[0]||''
+    return (aa<bb) ? -1 : ((aa>bb) ? 1 : (a[1]<b[1] ? 1 : (a[1]>b[1] ? -1 : 0)))
+  });
+}
+
 MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
   // "/get_meta_transactions/:act/:host/:pid"
   // callback gets the DATA object and callback which must be called with DATA when done with DATA
@@ -364,6 +373,7 @@ MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
   if( self.config.verbose ) console.log("___ get_meta_transactions called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
   var DATA = {}
+  var edison = isEdison(act)
   DATA["act"] = act
   DATA["hosts"] = {}
 
@@ -375,7 +385,7 @@ MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
         if(!(row.host in DATA["hosts"])) DATA["hosts"][row.host] = {}
         if(!(row.pid in DATA["hosts"][row.host])) DATA["hosts"][row.host][row.pid] = []
         var transArray = decomposeTransBlob(row.trans)
-        sortTransArray(transArray, isEdison(act))
+        sortTransArray(transArray, edison)
         var maxTransCount = Math.min(transArray.length,self.config.max_transaction_count)
         for (var k=0; k<maxTransCount; k++){
           var tran = transArray[k][0]
@@ -388,11 +398,12 @@ MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
       for(var host in DATA["hosts"]){
         for(var pid in DATA["hosts"][host]){
           var transArrayInDATA = DATA["hosts"][host][pid]
-          sortTransArray(transArrayInDATA, isEdison(act))
-          for(var i in transArrayInDATA){ transArrayInDATA[i] = transArrayInDATA[i][0] }
+          sortTransArray(transArrayInDATA, edison)
           var maxTransCount = Math.min(transArrayInDATA.length,self.config.max_transaction_count)
-          for(var i=maxTransCount; i<transArrayInDATA.length; i++){ delete transArrayInDATA[i] }
-          transArrayInDATA.splice(maxTransCount)
+          var trash = transArrayInDATA.splice(maxTransCount)
+          for(var i in trash){ delete trash[i][0] }
+          if (!edison) self._sort_db_transactions(transArrayInDATA)
+          for(var i in transArrayInDATA){transArrayInDATA[i] = transArrayInDATA[i][0]}
         }
       }
       if( self.config.verbose ) console.log("___ SELECT FROM meta tarnsactions for act :", act, "... done.")
