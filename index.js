@@ -1138,7 +1138,7 @@ function freePfkey(pfkey){
 }
 
 function isEdison(act){
-  return act.indexOf("edison:")==0
+  return /^edison/.test(act)
 }
 
 function parseInteger(str){
