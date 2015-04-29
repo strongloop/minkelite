@@ -87,8 +87,12 @@ function MinkeLite(config) {
 
   this._init_db()
   this._init_server()
-  this.pruner = (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0 ) ? null : setInterval(deleteAllStaleRecords.bind([this,this.config.stale_minutes,"minute"]), this.config.pruning_interval_seconds*1000)
-  this.model_builder = setInterval(buildStats.bind([this,this.config.stale_minutes,"minute"]), this.config.stats_interval_seconds*1000)
+  this.pruner = (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0 ) ? null :
+    setInterval(deleteAllStaleRecords.bind(this),
+      this.config.pruning_interval_seconds*1000)
+  this.model_builder = (this.config.stats_interval_seconds==0 ) ? null :
+    setInterval(buildStats.bind(this),
+      this.config.stats_interval_seconds*1000)
   if( this.config.verbose ) console.log(this)
 }
 
@@ -358,7 +362,7 @@ function getMetaTransactionsRoute(self,req,res){
 }
 
 MinkeLite.prototype._sort_db_transactions = function (transArray) {
-  var re = /^(Memcached|MongoDB|MySQL|PostgreSQL|Redis)/;
+  var re = /^(Memcached|Memcache|MongoDB|MySQL|Oracle|PostgreSQL|Redis)/;
   transArray.sort(function(a,b){
     var aa = (re.exec(a[0])||'')[0]||''
     var bb = (re.exec(b[0])||'')[0]||''
@@ -642,8 +646,10 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts, cb){
   var act_host_pid = act+$$$+host+$$$+pid.toString()
   async.waterfall([
     function(async_cb){
-      var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
-      db.get(query, function(err,row){async_cb(null,row)})
+      if ( self.config.stats_interval_seconds > 0 ) {
+        var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
+        db.get(query, function(err,row){async_cb(null,row)})
+      } else {async_cb(null,null)}
     }
   ],function(err,stats_mean_sd){
     if( err ){cb(err);return}
@@ -983,9 +989,9 @@ MinkeLite.prototype._delete_stale_records = function (tableName, value, unitStr)
 }
 
 function deleteAllStaleRecords () {
-  var self = this[0]
-  var value = this[1]
-  var unitStr = this[2]
+  var self = this
+  var value = this.config.stale_minutes
+  var unitStr = "minute"
   for (var i in self.config.system_tables){
     var tableName = self.config.system_tables[i].name
     self._delete_stale_records(tableName,value,unitStr)
@@ -1110,9 +1116,9 @@ function populateStatsMeanSd(self, value, unitStr){
 // async.waterfall([function(cb){cb(null,123)}],function(err,result){console.log(result)})
 
 function buildStats () {
-  var self = this[0]
-  var value = this[1]
-  var unitStr = this[2]
+  var self = this
+  var value = this.config.stale_minutes
+  var unitStr = "minute"
   populateStatsMeanSd(self,value,unitStr)
   if ( self.config.verbose ) self._read_all_records("model_mean_sd", false)
 }
