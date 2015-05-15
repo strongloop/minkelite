@@ -271,12 +271,15 @@ MinkeLite.prototype.getHostPidList = function (act,callback){
         }
       }
       if( self.config.verbose ) console.log("___ SELECT host,pid FROM raw_memory_pieces for act :", act, "... done.")
+      for(var k in DATA["hosts"]){
+        DATA["hosts"][k]["pids"].sort()
+      }
       callback(DATA)
     }
   }
 
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
-  var query = util.format("SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s ORDER BY ts DESC)", act, chartTime)
+  var query = util.format("SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s)", act, chartTime)
 
   db.all(query,getRowsHostPidList)
 }
