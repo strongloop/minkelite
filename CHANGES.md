@@ -1,3 +1,25 @@
+2015-05-21, Version 1.0.1
+=========================
+
+ * Use debug instead of home-grown debug log (Sam Roberts)
+
+ * Remove trailing whitespace (Sam Roberts)
+
+ * sort pids in getHostPidList payload (Setogit)
+
+ * deps: upgrade to sqlite3 v3.0.6 (Ben Noordhuis)
+
+ * disable stats builder if interval is zero edison support in strongloop environment (Setogit)
+
+ * edison support in strongloop environment (Setogit)
+
+ * group DB transactions per DB and sort them (Setogit)
+
+ * use callback for shutdown (Ryan Graham)
+
+ * emit 'ready' when DB has been fully initialized (Ryan Graham)
+
+
 2015-04-01, Version 1.0.0
 =========================
 
