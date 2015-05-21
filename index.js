@@ -59,7 +59,7 @@ var SYSTEM_TABLES = {
       "name": "model_mean_sd",
       "columns": "act_host_pid TEXT PRIMARY KEY, ts INTEGER, p_mu_mean REAL, p_mu_sd REAL, s_la_mean REAL, s_la_sd REAL"
     }
-  ] 
+  ]
 }
 
 util.inherits(MinkeLite, EventEmitter)
@@ -186,7 +186,7 @@ function sendCompressedTrace(traceCompressed,self,res){
   }
   writeHeaderJSON(res)
   res.write(trace)
-  res.end()  
+  res.end()
 }
 
 function sendUncompressedTrace(traceCompressed,self,res){
@@ -195,13 +195,13 @@ function sendUncompressedTrace(traceCompressed,self,res){
       var traceStr = buf.toString('utf-8');
       writeHeaderJSON(res,false)
       res.write(traceStr)
-      res.end()    
+      res.end()
     })
     if( self.config.verbose ) console.log("___ SELECT trace(uncompressed) for pfkey :", pfkey, '... done.')
   } else {
     writeHeaderJSON(res,false)
     res.write("The trace file not found.")
-    res.end()    
+    res.end()
   }
 }
 
@@ -229,7 +229,7 @@ MinkeLite.prototype.getRawPieces = function (pfkey,uncompress,callback) {
           var traceStr = buf.toString('utf-8');
           callback(traceStr)
         }
-      })      
+      })
     } else {
       callback(traceCompressed)
     }
@@ -239,7 +239,7 @@ MinkeLite.prototype.getRawPieces = function (pfkey,uncompress,callback) {
 function getHostPidListRoute(self,req,res){
   // "/get_host_pid_list/:act
   var act = decodeURIComponent(req.params.act)
-  self.getHostPidList(act,function(traceObject){zipAndRespond(traceObject,res)}) 
+  self.getHostPidList(act,function(traceObject){zipAndRespond(traceObject,res)})
 }
 
 MinkeLite.prototype.getHostPidList = function (act,callback){
@@ -575,7 +575,7 @@ function populateMinkeTables(self, act, trace, callback){
         populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMetaCustomTransactions, async_cb)
         if ( self.config.verbose ) self._read_all_records("raw_custom_transactions", false)
         // populateMetaCustomTransactions(self, act, trace, pfkey, ts)
-        // if ( self.config.verbose ) self._read_all_records("meta_custom_transactions", false)        
+        // if ( self.config.verbose ) self._read_all_records("meta_custom_transactions", false)
         }
       else {
         async_cb(null)
@@ -1021,8 +1021,8 @@ function populateStatsMeanSd(self, value, unitStr){
         var act_host_pid = row.act+$$$+row.host+$$$+row.pid.toString()
         if( act_host_pid in DATA["points"] ){
           var dp = DATA["points"][act_host_pid]
-          dp["p_mu"].push(row.p_mu)       
-          dp["s_la"].push(row.s_la)        
+          dp["p_mu"].push(row.p_mu)
+          dp["s_la"].push(row.s_la)
         } else {
           var dp = {}
           dp["p_mu"] = [row.p_mu]
