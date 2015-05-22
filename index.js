@@ -3,11 +3,11 @@
 module.exports = MinkeLite
 
 var CONFIG_JSON = require('./minkelite_config.json')
+var EventEmitter = require('events').EventEmitter
 var ago = require("ago")
 var async = require("async")
 var bodyParser = require('body-parser')
 var debug = require('debug')('minkelite');
-var EventEmitter = require('events').EventEmitter
 var express = require('express')
 var fs = require("fs")
 var md5 = require('MD5')
@@ -17,20 +17,24 @@ var util = require('util')
 var xtend = require('xtend')
 var zlib = require('zlib')
 
-var LIMIT_TRANSACTION_INSTANCES = false
-var DISABLE_VERBOSE_MODE = true
-var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
+// XXX(sam) these variable names are longer and more obscure than the literal
+// value they represent
 var $$$ = '|'
 var $$_ = '!'
-var TRACE_NOT_FOUND_GZIPPED = null
-zlib.gzip("The trace file not found.",function(err, buf){TRACE_NOT_FOUND_GZIPPED = buf})
-var SUPPORTED_TRACER_VERSIONS = ["1.0.","1.1.","1.2."]
-var MIN_DATA_POINTS_REQUIRED_FOR_MODELING = 20
-var SUPRESS_NOISY_WATERFALL_SEGMENTS = false
+var DISABLE_VERBOSE_MODE = true
+var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
+var LIMIT_TRANSACTION_INSTANCES = false
 var MINIMUM_SEGMENT_DURATION = 2
+var MIN_DATA_POINTS_REQUIRED_FOR_MODELING = 20
+var SUPPORTED_TRACER_VERSIONS = ["1.0.","1.1.","1.2."]
+var SUPRESS_NOISY_WATERFALL_SEGMENTS = false
+var TRACE_NOT_FOUND_GZIPPED = null
+
+zlib.gzip("The trace file not found.", function(err, buf) {
+  TRACE_NOT_FOUND_GZIPPED = buf
+})
 
 var SYSTEM_TABLES = {
-  // "raw_trace", "raw_memory_pieces", "meta_transactions", "raw_transactions", "model_mean_sd"
   "system_tables":[
     {
       "name": "raw_trace",
@@ -63,46 +67,64 @@ var SYSTEM_TABLES = {
   ]
 }
 
-util.inherits(MinkeLite, EventEmitter)
-
 function MinkeLite(config) {
   if (!(this instanceof MinkeLite)) return new MinkeLite(config)
   EventEmitter.call(this)
   var MY_CONFIG = config ? xtend(SYSTEM_TABLES, config) : SYSTEM_TABLES
   this.config = xtend(MY_CONFIG, CONFIG_JSON)
+
   if( this.config.dev_mode==null ) this.config.dev_mode = false
   if( this.config.in_memory==null ) this.config.in_memory = true
-  this.config.dir_path = this.config.dir_path || "./"
-  this.config.db_name = this.config.in_memory ? ":memory:" : ( this.config.db_name || "minkelite.db" )
-  if( this.config.sqlite3_verbose==null ) this.config.sqlite3_verbose = false
-  if( this.config.sqlite3_verbose ) sqlite3 = sqlite3.verbose();
-  if( this.config.stale_minutes==null ) this.config.stale_minutes = 1*24*60
-  if( this.config.chart_minutes==null ) this.config.chart_minutes = 1*24*60
-  if( this.config.pruning_interval_seconds==null ) this.config.pruning_interval_seconds = 10*60
-  if( this.config.start_server==null ) this.config.start_server = false
-  if( this.config.server_port==null ) this.config.server_port = 8103
-  if( this.config.max_transaction_count==null ) this.config.max_transaction_count = 20
-  if( this.config.stats_interval_seconds==null ) this.config.stats_interval_seconds = 10*60
-  if( this.config.compress_trace_file==null ) this.config.compress_trace_file = true
 
+  this.config.dir_path = this.config.dir_path || "./"
+  this.config.db_name = this.config.in_memory ? ":memory:" : (
+    this.config.db_name || "minkelite.db" );
+
+  if( this.config.sqlite3_verbose==null )
+    this.config.sqlite3_verbose = false // null is already falsy
+  if( this.config.sqlite3_verbose )
+    sqlite3 = sqlite3.verbose();
+  if( this.config.stale_minutes==null )
+    this.config.stale_minutes = 1*24*60
+  if( this.config.chart_minutes==null )
+    this.config.chart_minutes = 1*24*60
+  if( this.config.pruning_interval_seconds==null )
+    this.config.pruning_interval_seconds = 10*60
+  if( this.config.start_server==null )
+    this.config.start_server = false
+  if( this.config.server_port==null )
+    this.config.server_port = 8103
+  if( this.config.max_transaction_count==null )
+    this.config.max_transaction_count = 20
+  if( this.config.stats_interval_seconds==null )
+    this.config.stats_interval_seconds = 10*60
+  if( this.config.compress_trace_file==null )
+    this.config.compress_trace_file = true
+
+  // XXX(sam) Initialization below is async, and can fail.
   this._init_db()
   this._init_server()
-  this.pruner = (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0 ) ? null :
+
+  this.pruner =
+    (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0) ?
+    null :
     setInterval(deleteAllStaleRecords.bind(this),
-      this.config.pruning_interval_seconds*1000)
-  this.model_builder = (this.config.stats_interval_seconds==0 ) ? null :
-    setInterval(buildStats.bind(this),
-      this.config.stats_interval_seconds*1000)
-  debug(this)
+                this.config.pruning_interval_seconds*1000)
+  this.model_builder = (this.config.stats_interval_seconds==0 ) ?
+    null :
+    setInterval(buildStats.bind(this), this.config.stats_interval_seconds*1000)
+  debug('config:', this.config)
 }
+
+util.inherits(MinkeLite, EventEmitter)
 
 MinkeLite.prototype.shutdown = function (cb) {
   // exitIfNotReady(this, "shutdown")
-  if ( this.pruner ){
+  if (this.pruner) {
     clearInterval(this.pruner)
     this.pruner = null
   }
-  if ( this.model_builder ){
+  if (this.model_builder) {
     clearInterval(this.model_builder)
     this.model_builder = null
   }
@@ -132,10 +154,15 @@ MinkeLite.prototype.startServer = function () {
 
 MinkeLite.prototype._init_db = function () {
   this.db_being_initialized = false
-  this.db_path = this.config.in_memory ? this.config.db_name : this.config.dir_path+this.config.db_name
-  this.db_exists = this.config.in_memory ? false : fs.existsSync(this.db_path)
+  this.db_path = this.config.in_memory ?
+    this.config.db_name :
+    this.config.dir_path+this.config.db_name
+  this.db_exists = this.config.in_memory ?
+    false :
+    fs.existsSync(this.db_path)
+  debug('db open: path %j pre-existing? %j', this.db_path, this.db_exists);
   this.db = new sqlite3.Database(this.db_path)
-  if ( this.db_exists ) {
+  if (this.db_exists) {
     this.db.on('open', this.emit.bind(this, 'ready'))
     return
   }
@@ -143,17 +170,20 @@ MinkeLite.prototype._init_db = function () {
   var self = this;
   this.db.on('open', function() {
     async.each(self.config.system_tables, function(tbl, next) {
-      var query = util.format("CREATE TABLE %s (%s) WITHOUT ROWID", tbl.name, tbl.columns)
+      var query = util.format("CREATE TABLE %s (%s) WITHOUT ROWID",
+        tbl.name, tbl.columns)
       self.db.run(query, function(err) {
-        printRow.apply(this, arguments)
+        debug('init: %s => %j', query, err);
         next(err)
       });
     }, function(err) {
       self.db_being_initialized = false
-      if (err) self.emit('error', err)
-      else self.emit('ready')
+      if (err)
+        self.emit('error', err) // FIXME(sam) pm must listen for this
+      else
+        self.emit('ready')
     })
-    self.db_exists = true
+    self.db_exists = true // XXX(sam) shouldn't this be two lines up?
   });
 }
 
@@ -174,13 +204,17 @@ MinkeLite.prototype._init_server = function () {
       function(req,res){getTransactionRoute(this,req,res)}.bind(this))
     .get("/get_host_pid_list/:act",
       function(req,res){getHostPidListRoute(this,req,res)}.bind(this));
-  this.express_server = this.config.start_server ? this.express_app.listen(this.config.server_port,
-    function(){debug("MinkeLite is listening on " + this.config.server_port)}.bind(this)) : null
+
+  this.express_server = this.config.start_server ?
+    this.express_app.listen(this.config.server_port, function() {
+        debug("MinkeLite is listening on " + this.config.server_port)
+      }.bind(this)) // XXX(sam) remove bind, use this.address()
+      : null
 }
 
-function sendCompressedTrace(traceCompressed,self,res){
+function sendCompressedTrace(traceCompressed, self, res) {
   var trace = TRACE_NOT_FOUND_GZIPPED
-  if ( traceCompressed ){
+  if (traceCompressed) {
     trace = traceCompressed
     debug("SELECT trace(compressed) for pfkey :", pfkey, '... done.')
   }
@@ -189,17 +223,18 @@ function sendCompressedTrace(traceCompressed,self,res){
   res.end()
 }
 
-function sendUncompressedTrace(traceCompressed,self,res){
-  if ( traceCompressed ){
-    zlib.unzip(traceCompressed, function(zlibErr, buf){
+function sendUncompressedTrace(traceCompressed, self, res){
+  if (traceCompressed) {
+    zlib.unzip(traceCompressed, function(zlibErr, buf) {
+      // FIXME zlibErr is unhandled
       var traceStr = buf.toString('utf-8');
-      writeHeaderJSON(res,false)
+      writeHeaderJSON(res, false)
       res.write(traceStr)
       res.end()
     })
     debug("SELECT trace(uncompressed) for pfkey :", pfkey, '... done.')
   } else {
-    writeHeaderJSON(res,false)
+    writeHeaderJSON(res, false)
     res.write("The trace file not found.")
     res.end()
   }
@@ -208,24 +243,36 @@ function sendUncompressedTrace(traceCompressed,self,res){
 function getRawPiecesRoute(self,req,res){
   // "/get_raw_pieces/:pfkey"
   var pfkey = decodeURIComponent(req.params.pfkey)
-  self.getRawPieces(pfkey,false,function(traceCompressed){
-    var sendCallback = self.config.compress_trace_file ? sendCompressedTrace : sendUncompressedTrace
+
+  self.getRawPieces(pfkey, false, function(traceCompressed){
+    var sendCallback = self.config.compress_trace_file ?
+      sendCompressedTrace : sendUncompressedTrace
     sendCallback(traceCompressed,self,res)
   })
 }
 
-MinkeLite.prototype.getRawPieces = function (pfkey,uncompress,callback) {
+MinkeLite.prototype.getRawPieces = function (pfkey, uncompress, callback) {
   // "/get_raw_pieces/:pfkey"
   // callback gets a string of either gzip compressed or uncompressed trace JSON
-  debug("get_raw_pieces called with uncompress:",uncompress,"for pfkey:",pfkey)
+  debug("get_raw_pieces called with uncompress %j for pfkey %j",
+        uncompress, pfkey)
+
   var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey)
-  this.db.get(query, function(err,row){
+  this.db.get(query, function(err, row) {
+    if (err) {
+      debug('query %s => %j', query, err);
+      return callback(null);
+    }
     var traceCompressed = (row && row.trace) ? row.trace : null
-    if( err || traceCompressed==null ){ callback(null); return }
-    if( uncompress ) {
-      zlib.unzip(traceCompressed, function(zlibErr, buf){
-        if( zlibErr ){callback(null)}
-        else {
+    if(traceCompressed == null) {
+      debug('query %s => no row.trace', query);
+      return callback(null);
+    }
+    if (uncompress) {
+      zlib.unzip(traceCompressed, function(zlibErr, buf) {
+        if (zlibErr) {
+          callback(null)
+        } else {
           var traceStr = buf.toString('utf-8');
           callback(traceStr)
         }
@@ -239,7 +286,9 @@ MinkeLite.prototype.getRawPieces = function (pfkey,uncompress,callback) {
 function getHostPidListRoute(self,req,res){
   // "/get_host_pid_list/:act
   var act = decodeURIComponent(req.params.act)
-  self.getHostPidList(act,function(traceObject){zipAndRespond(traceObject,res)})
+  self.getHostPidList(act, function(traceObject) {
+    zipAndRespond(traceObject,res)
+  })
 }
 
 MinkeLite.prototype.getHostPidList = function (act,callback){
@@ -253,8 +302,10 @@ MinkeLite.prototype.getHostPidList = function (act,callback){
   DATA["hosts"] = []
 
   function getRowsHostPidList(err, rows){
-    if (err){console.log("ERROR:",err)}
-    else if ( rows ){
+    if (err) {
+      console.log("ERROR:",err)
+    }
+    else if (rows) {
       var hosts = DATA["hosts"]
       for (var i in rows){
         var row = rows[i]
@@ -266,8 +317,11 @@ MinkeLite.prototype.getHostPidList = function (act,callback){
             break
           }
         }
-        if( unknownHost ){
-          hosts.push({"host":row.host,"pids":[row.pid]})
+        if (unknownHost) {
+          hosts.push({
+            "host": row.host,
+            "pids": [row.pid]
+          })
         }
       }
       debug("SELECT host,pid FROM raw_memory_pieces for act :", act, "... done.")
@@ -279,9 +333,11 @@ MinkeLite.prototype.getHostPidList = function (act,callback){
   }
 
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
-  var query = util.format("SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s)", act, chartTime)
+  var query = util.format(
+    "SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s)",
+    act, chartTime)
 
-  db.all(query,getRowsHostPidList)
+  db.all(query, getRowsHostPidList)
 }
 
 function getRawMemoryPiecesRoute(self,req,res){
@@ -289,7 +345,10 @@ function getRawMemoryPiecesRoute(self,req,res){
   var act = decodeURIComponent(req.params.act)
   var host = decodeURIComponent(req.params.host)
   var pid = parseInteger(decodeURIComponent(req.params.pid))
-  self.getRawMemoryPieces(act,host,pid,function(traceObject){zipAndRespond(traceObject,res)})
+
+  self.getRawMemoryPieces(act, host, pid, function(traceObject) {
+    zipAndRespond(traceObject,res)
+  })
 }
 
 MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
@@ -303,9 +362,11 @@ MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
   DATA["hosts"] = {}
 
   function getRowsRawMemoryPieces(err, rows){
-    if (err){console.log("ERROR:",err)}
-    else if ( rows ){
-      for (var i in rows){
+    if (err) {
+      console.log("ERROR:",err)
+    }
+    else if (rows) {
+      for (var i in rows) {
         var row = rows[i]
         var data = {}
         data["pfkey"] = row.pfkey
@@ -316,12 +377,14 @@ MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
         data["p_ut"] = row.p_ut
         data["s_la"] = row.s_la
         data["lm_a"] = row.lm_a
-        if(!(row.host in DATA["hosts"])) DATA["hosts"][row.host] = {}
-        if(!(row.pid in DATA["hosts"][row.host])) DATA["hosts"][row.host][row.pid] = []
+        if(!(row.host in DATA["hosts"]))
+          DATA["hosts"][row.host] = {}
+        if(!(row.pid in DATA["hosts"][row.host]))
+          DATA["hosts"][row.host][row.pid] = []
         DATA["hosts"][row.host][row.pid].push(data)
       }
-      for( var host in DATA["hosts"] ){
-        for( var pid in DATA["hosts"][host] ){
+      for (var host in DATA["hosts"]) {
+        for (var pid in DATA["hosts"][host]) {
           DATA["hosts"][host][pid].sort(function(x,y){
             if( x.ts<y.ts ) return -1
             if( x.ts>y.ts ) return 1
@@ -336,15 +399,17 @@ MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
 
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
   var query = null
-  var baseQuery1 = util.format("SELECT pfkey,ts,host,pid,p_mr,p_mt,p_mu,p_ut,s_la,lm_a FROM raw_memory_pieces WHERE act='%s' AND ts > %s ", act, chartTime)
+  var baseQuery1 = util.format(
+    "SELECT pfkey,ts,host,pid,p_mr,p_mt,p_mu,p_ut,s_la,lm_a FROM raw_memory_pieces WHERE act='%s' AND ts > %s ",
+    act, chartTime)
   var baseQuery2 = "ORDER BY ts"
-  if ( host.length>0 && host!="0" && pid>0 ) {
+  if (host.length>0 && host!="0" && pid>0 ) {
     var querySpecificHostPid = baseQuery1+"AND host='%s' AND pid=%s "+baseQuery2
     query = util.format(querySpecificHostPid, host, pid.toString())
-  } else if ( host.length>0 && host!="0" && pid==0 ) {
+  } else if (host.length>0 && host!="0" && pid==0 ) {
     var querySpecificHost = baseQuery1+"AND host='%s' "+baseQuery2
     query = util.format(querySpecificHost, host)
-  } else if ( (host.length==0 || host=="0") && pid>0 ) {
+  } else if ((host.length==0 || host=="0") && pid>0 ) {
     var querySpecificPid = baseQuery1+"AND pid=%s "+baseQuery2
     query = util.format(querySpecificPid, pid.toString())
   } else {
@@ -1119,8 +1184,6 @@ function populateStatsMeanSd(self, value, unitStr){
   })
 }
 
-// async.waterfall([function(cb){cb(null,123)}],function(err,result){console.log(result)})
-
 function buildStats () {
   var self = this
   var value = this.config.stale_minutes
@@ -1128,6 +1191,7 @@ function buildStats () {
   populateStatsMeanSd(self,value,unitStr)
   if ( debug.enabled ) self._read_all_records("model_mean_sd", false)
 }
+
 // Utilities
 
 // var trace = {monitoring:{system_info:{hostname:"hostname"}},metadata:{pid:12345,timestamp:12345467890123}};
@@ -1160,7 +1224,7 @@ function parseInteger(str){
   return intValue
 }
 
-function writeHeaderJSON(res,compress){
+function writeHeaderJSON(res, compress) {
   compress = ( compress==null ) ? true : compress
   var option = {'Content-Type': 'application/json'}
   if( compress ) option['Content-Encoding'] = 'gzip'
@@ -1206,13 +1270,21 @@ function getHourInt(epochTs){
 }
 
 function printRow(err, row){
-  if (err){console.log("ERROR:",err)}
-  else if (row!=null){
+  if (err) {
+    console.log("ERROR:",err)
+  }
+  else if (row != null){
     console.log(JSON.stringify(row).substring(0,1000))
   }
 }
 
 function exitIfNotReady(inst, myName){
-  if ( inst.db_being_initialized ){ console.log(myName, " db being initialized."); process.exit(1) }
-  if ( ! inst.db_exists ){ console.log(myName, " db does not exist."); process.exit(1) }
+  if (inst.db_being_initialized) {
+    console.log(myName, " db being initialized.");
+    process.exit(1)
+  }
+  if (!inst.db_exists) {
+    console.log(myName, " db does not exist.");
+    process.exit(1)
+  }
 }
