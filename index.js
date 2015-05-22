@@ -158,8 +158,12 @@ MinkeLite.prototype._init_db = function () {
   this.db_exists = this.config.in_memory ?
     false :
     fs.existsSync(this.db_path)
+
   debug('db open: path %j pre-existing? %j', this.db_path, this.db_exists);
+
   this.db = new sqlite3.Database(this.db_path)
+  this.db.on('error', this.emit.bind(this, 'error'));
+
   if (this.db_exists) {
     this.db.on('open', this.emit.bind(this, 'ready'))
     return
