@@ -80,8 +80,6 @@ function MinkeLite(config) {
   this.config.db_name = this.config.in_memory ? ":memory:" : (
     this.config.db_name || "minkelite.db" );
 
-  if( this.config.sqlite3_verbose==null )
-    this.config.sqlite3_verbose = false // null is already falsy
   if( this.config.sqlite3_verbose )
     sqlite3 = sqlite3.verbose();
   if( this.config.stale_minutes==null )
