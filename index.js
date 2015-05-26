@@ -17,6 +17,7 @@ var util = require('util')
 var xtend = require('xtend')
 var zlib = require('zlib')
 
+var IGNORE_ANOMALY_IN_TRANSACTIONS = true
 var LIMIT_TRANSACTION_INSTANCES = false
 var DISABLE_VERBOSE_MODE = true
 var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
@@ -470,7 +471,7 @@ MinkeLite.prototype.getTransaction = function (act,tran,host,pid,callback){
         data["min"] = row.min
         data["n"] = row.n
         data["sd"] = row.sd
-        data["lm_a"] = row.lm_a
+        data["lm_a"] = IGNORE_ANOMALY_IN_TRANSACTIONS ? 0 : row.lm_a
 
         if(!(row.host in DATA["hosts"])) DATA["hosts"][row.host] = {}
         if(!(row.pid in DATA["hosts"][row.host])) DATA["hosts"][row.host][row.pid] = []
