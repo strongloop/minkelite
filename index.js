@@ -218,7 +218,6 @@ function sendCompressedTrace(traceCompressed, self, res) {
   var trace = TRACE_NOT_FOUND_GZIPPED
   if (traceCompressed) {
     trace = traceCompressed
-    debug("SELECT trace(compressed) for pfkey :", pfkey, '... done.')
   }
   writeHeaderJSON(res)
   res.write(trace)
@@ -234,7 +233,6 @@ function sendUncompressedTrace(traceCompressed, self, res){
       res.write(traceStr)
       res.end()
     })
-    debug("SELECT trace(uncompressed) for pfkey :", pfkey, '... done.')
   } else {
     writeHeaderJSON(res, false)
     res.write("The trace file not found.")
