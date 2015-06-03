@@ -1,3 +1,19 @@
+2015-06-03, Version 1.1.0
+=========================
+
+ * remove the debug statement because it has little value and pfkey is undefined. (Setogit)
+
+ * Emit sqlite3 errors on Minkelite (Sam Roberts)
+
+ * Remove unnecessary conversion of null to false (Sam Roberts)
+
+ * Whitespace cleanup, wrapping and code consistency (Sam Roberts)
+
+ * Implement minkelite parameters for v1 release (Setogit)
+
+ * Add .gitignore file (Sam Roberts)
+
+
 2015-05-21, Version 1.0.1
 =========================
 
