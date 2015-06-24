@@ -115,7 +115,7 @@ Puts trace data to MinkeLite DB and returns {Boolean} where true = the post requ
 - `version` {String} tracer version such as "1.2.2"
 - `act` {String} same as HTTP API parameter: act
 - `trace` {Object} trace JSON object
-- `callback` {Function} Calleld with {Boolean} where true = the post request succeeded
+- `callback` {Function} Calleld with {Boolean} where false = the post request succeeded
 
 ### ml.getExpressApp()
 Returns an Express app of the MinkeLite instance.  Clients should start it.
