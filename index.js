@@ -103,14 +103,13 @@ function MinkeLite(config) {
   this._init_db()
   this._init_server()
 
-  this.pruner =
-    (this.config.pruning_interval_seconds==0 || this.config.stale_minutes==0) ?
-    null :
-    setInterval(deleteAllStaleRecords.bind(this),
+  this.pruner = null;
+  if (this.config.pruning_interval_seconds > 0 && this.config.stale_minutes > 0)
+    this.pruner = setInterval(deleteAllStaleRecords.bind(this),
                 this.config.pruning_interval_seconds*1000)
-  this.model_builder = (this.config.stats_interval_seconds==0 ) ?
-    null :
-    setInterval(buildStats.bind(this), this.config.stats_interval_seconds*1000)
+  this.model_builder = null;
+  if (this.config.stats_interval_seconds > 0)
+    this.model_builder = setInterval(buildStats.bind(this), this.config.stats_interval_seconds*1000)
   debug('config:', this.config)
 }
 
@@ -182,14 +181,19 @@ MinkeLite.prototype._init_db = function () {
       self.db_being_initialized = false
       if (err)
         self.emit('error', err) // FIXME(sam) pm must listen for this
-      else
+      else {
         self.emit('ready')
+        self.db_exists = true
+      }
     })
-    self.db_exists = true // XXX(sam) shouldn't this be two lines up?
   });
 }
 
 MinkeLite.prototype._init_server = function () {
+  if (!this.config.start_server) {
+    this.express_server = null;
+    return;
+  }
   var jsonParser = bodyParser.json({limit:100000000})
   this.express_app = express()
     .post("/post_raw_pieces/:version", jsonParser,
@@ -206,12 +210,10 @@ MinkeLite.prototype._init_server = function () {
       function(req,res){getTransactionRoute(this,req,res)}.bind(this))
     .get("/get_host_pid_list/:act",
       function(req,res){getHostPidListRoute(this,req,res)}.bind(this));
-
-  this.express_server = this.config.start_server ?
-    this.express_app.listen(this.config.server_port, function() {
+  this.express_server = this.express_app.listen(
+      this.config.server_port, function() {
         debug("MinkeLite is listening on " + this.config.server_port)
       }.bind(this)) // XXX(sam) remove bind, use this.address()
-      : null
 }
 
 function sendCompressedTrace(traceCompressed, self, res) {
@@ -254,9 +256,12 @@ function getRawPiecesRoute(self,req,res){
 MinkeLite.prototype.getRawPieces = function (pfkey, uncompress, callback) {
   // "/get_raw_pieces/:pfkey"
   // callback gets a string of either gzip compressed or uncompressed trace JSON
+  if(this.db_being_initialized){
+    callback(null)
+    return
+  }
   debug("get_raw_pieces called with uncompress %j for pfkey %j",
         uncompress, pfkey)
-
   var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey)
   this.db.get(query, function(err, row) {
     if (err) {
@@ -294,6 +299,10 @@ function getHostPidListRoute(self,req,res){
 MinkeLite.prototype.getHostPidList = function (act,callback){
   // "/get_host_pid_list/:act
   // callback gets the DATA object
+  if(this.db_being_initialized){
+    callback(null)
+    return
+  }
   var self = this
   debug("get_host_pid_list called for act:",act)
   var db = this.db
@@ -354,6 +363,10 @@ function getRawMemoryPiecesRoute(self,req,res){
 MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
   // "/get_raw_memory_pieces/:act/:host/:pid"
   // callback gets the DATA object
+  if(this.db_being_initialized){
+    callback(null)
+    return
+  }
   var self = this
   debug("get_raw_memory_pieces called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
@@ -441,6 +454,10 @@ MinkeLite.prototype._sort_db_transactions = function (transArray) {
 MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
   // "/get_meta_transactions/:act/:host/:pid"
   // callback gets the DATA object and callback which must be called with DATA when done with DATA
+  if(this.db_being_initialized){
+    callback(null,null)
+    return
+  }
   var self = this
   debug("get_meta_transactions called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
@@ -514,6 +531,10 @@ function getTransactionRoute(self,req,res){
 MinkeLite.prototype.getTransaction = function (act,tran,host,pid,callback){
   // "/get_transaction/:act/:transaction/:host/:pid"
   // callback gets the DATA object
+  if(this.db_being_initialized){
+    callback(null)
+    return
+  }
   var self = this
   debug("get_transaction called for act:",act,"host:",host,"pid:",pid)
   var db = self.db
@@ -591,7 +612,11 @@ function postRawPiecesRoute(self,req,res){
 MinkeLite.prototype.postRawPieces = function (version,act,trace,callback){
   // "/post_raw_pieces/:version"
   // "/results/:version"
-  // returns true when post succeded, false when failed
+  // returns err: false when post succeded, err: true when failed
+  if(this.db_being_initialized){
+    callback(true)
+    return
+  }
   var self = this
   debug("post_raw_pieces called with act %j version %j", act, version)
   for(var i in SUPPORTED_TRACER_VERSIONS){
@@ -603,7 +628,6 @@ MinkeLite.prototype.postRawPieces = function (version,act,trace,callback){
   }
   console.error("post_raw_pieces unsupported version %j not %j",
         version, SUPPORTED_TRACER_VERSIONS);
-
   callback(true)
 }
 
