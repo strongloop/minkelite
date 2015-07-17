@@ -443,7 +443,9 @@ function getMetaTransactionsRoute(self,req,res){
 }
 
 MinkeLite.prototype._sort_db_transactions = function (transArray) {
-  var re = /^(Memcached|Memcache|MongoDB|MySQL|Oracle|PostgreSQL|Redis)/;
+  // Memcached must be listed before Mechcache.
+  // Oracledb must be listed before Oracle.
+  var re = /^(Memcached|Memcache|MongoDB|MySQL|Oracledb|Oracle|PostgreSQL|Redis)/;
   transArray.sort(function(a,b){
     var aa = (re.exec(a[0])||'')[0]||''
     var bb = (re.exec(b[0])||'')[0]||''
