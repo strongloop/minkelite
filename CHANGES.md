@@ -1,4 +1,10 @@
-2015-07-07, Version 1.1.2
+2015-07-27, Version 1.2.0
+=========================
+
+ * Agent probe: support oracledb by Oracle (Setogit)
+
+
+2015-07-06, Version 1.1.2
 =========================
 
  * check if db is being initialized (Setogit)
