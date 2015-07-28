@@ -2,7 +2,7 @@
   "name": "minkelite",
   "description": "Functions and utility for loading/fetching trace data to/from light-weight db",
   "author": "Tetsuo Seto <seto@strongloop.com>",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "main": "index.js",
   "keywords": [
     "strongloop",

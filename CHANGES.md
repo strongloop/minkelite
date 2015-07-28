@@ -1,3 +1,9 @@
+2015-07-28, Version 1.2.1
+=========================
+
+ * add 1.3 to supported tracer version (Setogit)
+
+
 2015-07-27, Version 1.2.0
 =========================
 
