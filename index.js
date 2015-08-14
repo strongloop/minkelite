@@ -1,5 +1,22 @@
 'use strict'
 
+/*
+
+Protocol between Minkelite and Tracer on Trace File Versioning
+
+1. When Tracer makes a breaking change to the trace file format, it bumps up
+ the major version of the package.  Tarcer developer an Minkelite developer
+ work together and implement the new format on both side.  Currently,
+ Minkelite supports Trace File Version 1 only and rejects others.
+
+2. Tracer can change minor or patch version of the package as far as it does
+ not impact Trace file format.  It's safe to add new fields to the trace file
+ as long as the existing fields and their semantics don't change.  Minkelite
+ stores the trace file as a whole with the new fields (postRawPieces API)
+ and the trace file can be read afterwards (getRawPieces API).
+
+ */
+
 module.exports = MinkeLite
 
 var CONFIG_JSON = require('./minkelite_config.json')
@@ -26,7 +43,7 @@ var EXTRA_WRITE_COUNT_IN_DEVMODE = 0
 var LIMIT_TRANSACTION_INSTANCES = false
 var MINIMUM_SEGMENT_DURATION = 2
 var MIN_DATA_POINTS_REQUIRED_FOR_MODELING = 20
-var SUPPORTED_TRACER_VERSIONS = ["1.0.","1.1.","1.2.", "1.3"]
+var SUPPORTED_TRACER_VERSIONS = ["1."]
 var SUPRESS_NOISY_WATERFALL_SEGMENTS = false
 var TRACE_NOT_FOUND_GZIPPED = null
 
