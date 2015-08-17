@@ -17,6 +17,24 @@ Protocol between Minkelite and Tracer on Trace File Versioning
 
  */
 
+/*
+
+Debugging minkelite with config.sqlite3_verbose:true  (derfault: false)
+
+By setting sqlite3_verbose to true, minkelite initializes Sqlite3 with
+verbose mode on.  Client can listen on 'trace' or 'profile' events to
+monitor the minkelite transactions:
+
+  this.db.on('trace', function(sql){
+    console.log('----- on trace:', sql)
+  })
+
+  this.db.on('profile', function(sql, msec){
+    console.log('----- on profile:', sql, msec, 'ms.')
+  })
+
+ */
+
 module.exports = MinkeLite
 
 var CONFIG_JSON = require('./minkelite_config.json')
@@ -95,7 +113,7 @@ function MinkeLite(config) {
 
   this.config.dir_path = this.config.dir_path || "./"
   this.config.db_name = this.config.in_memory ? ":memory:" : (
-    this.config.db_name || "minkelite.db" );
+    this.config.db_name || '' );
 
   if( this.config.sqlite3_verbose )
     sqlite3 = sqlite3.verbose();
@@ -168,16 +186,21 @@ MinkeLite.prototype.startServer = function () {
 
 MinkeLite.prototype._init_db = function () {
   this.db_being_initialized = false
-  this.db_path = this.config.in_memory ?
-    this.config.db_name :
-    this.config.dir_path+this.config.db_name
+  this.db_path = this.config.in_memory ? this.config.db_name :
+    this.config.db_name=='' ? '' : this.config.dir_path+this.config.db_name
   this.db_exists = this.config.in_memory ?
     false :
     fs.existsSync(this.db_path)
 
+  if(this.db_exists && this.config.overwrite) {
+    try{fs.unlinkSync(this.db_path);} catch(e){}
+    this.db_exists = false;
+  }
+
   debug('db open: path %j pre-existing? %j', this.db_path, this.db_exists);
 
-  this.db = new sqlite3.Database(this.db_path)
+  this.db = new sqlite3.Database(this.db_path,
+      sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE)
   this.db.on('error', this.emit.bind(this, 'error'));
 
   if (this.db_exists) {
