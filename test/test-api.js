@@ -1,17 +1,9 @@
 'use strict';
 
+var async = require('async');
 var MinkeLite = require('../index');
-var trace = require('./helloworld.json');
-// adjust timestaps in the trace file to current for MinkeLite not to filter out
-var TIME_STAMP = Date.now();
-trace.metadata.timestamp = TIME_STAMP;
-trace.monitoring.statware.checktime = trace.metadata.timestamp;
-trace.transactions.end = trace.metadata.timestamp;
-trace.transactions.start = trace.transactions.end - 22130;
-
 var tap = require('tap');
 
-var ML = new MinkeLite();;
 var VERSION = "1.1.2";
 var ACT = "wfp:helloworld";
 var PFKEY = null // acquired in getRawMemoryPieces Test
@@ -20,16 +12,71 @@ var HOST = "ip-10-99-191-85";
 var PID = 17854;
 var TRANSACTION = "request GET http://localhost:8123/";
 
-// Run this manually as follows:
-// cd minkelite
-// node ./node_modules/tap/bin/tap.js test/test-api.js
-
 tap.test('emits "ready" when ready', function(t) {
   ML.on('ready', function() {
     t.ok(true, 'sqlite3 DB is ready for writing');
     t.end();
   });
 });
+
+var LAST_ROUND = 10;
+var params = [
+  {testId: 'In-Memory',
+     data: {'in_memory': true}},
+  {testId: 'On-File/Named',
+     data: {'in_memory': false, 'db_name': 'minkelite_test.db', 'overwrite': true}},
+  {testId: 'On-File/Anonymous',
+     data: {'in_memory': false, 'db_name': ''}}
+];
+
+tap.test('Sqlite3 Access Mode Test', function(t) {
+  var trace2 = require('./helloworld2.json');
+  async.eachSeries(params,
+    function(param, each_cb) {
+      var counter = 0;
+      var ML2 = new MinkeLite(param.data);
+      ML2.on('ready', function() {
+        async.whilst(
+          function() {return counter < LAST_ROUND},
+          function(callback) {
+            counter++;
+            var TS = Date.now();
+            trace2.metadata.timestamp = TS;
+            trace2.monitoring.statware.checktime = trace2.metadata.timestamp;
+            trace2.transactions.end = trace2.metadata.timestamp;
+            trace2.transactions.start = trace2.transactions.end - 22130;
+            ML2.postRawPieces(VERSION, ACT + counter, trace2, function(err){
+              t.ok( ! err, param.testId +
+                  ' mode: postRawPieces writes the trace successfully.');
+              if (this == LAST_ROUND) ML2.shutdown(function(err) {
+                t.ok( ! err, param.testId + ' mode: sqlite3 shut down successfully.');
+                callback(err);
+                });
+              else callback(err);
+            }.bind(counter));
+        },
+        function(err){
+          t.ok( ! err, param.testId +
+              ' mode: all ' + LAST_ROUND + ' writes completed successfully.');
+          each_cb(err);
+        });
+      });
+    },
+    function(err){
+      t.ok( ! err, 'All ' + params.length + ' modes completed successfully.');
+      t.end();
+    });
+});
+
+var trace = require('./helloworld.json');
+// adjust timestaps in the trace file to current for MinkeLite not to filter out
+var TIME_STAMP = Date.now();
+trace.metadata.timestamp = TIME_STAMP;
+trace.monitoring.statware.checktime = trace.metadata.timestamp;
+trace.transactions.end = trace.metadata.timestamp;
+trace.transactions.start = trace.transactions.end - 22130;
+
+var ML = new MinkeLite(params[0].data);
 
 tap.test('postRawPieces Test', function(t) {
   ML.postRawPieces(VERSION,ACT,trace, function(err){

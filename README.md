@@ -123,5 +123,6 @@ Returns an Express app of the MinkeLite instance.  Clients should start it.
 ### ml.startServer()
 Starts the Express app of the MinkeLite instance
 
-### ml.shutdown()
+### ml.shutdown(callback)
 Shutdown the handles created for the MinkeLite instance
+- `callback` {Function} Called with error
