@@ -1,4 +1,14 @@
-2015-07-28, Version 1.2.1
+2015-08-21, Version 1.2.2
+=========================
+
+ * Make Minkelite more robust for multi client use. (Tetsuo Seto)
+
+ * deps: upgrade MD5@1 to md5@2 (Ryan Graham)
+
+ * Check the major version only for supported tracer versions (Setogit)
+
+
+2015-07-27, Version 1.2.1
 =========================
 
  * add 1.3 to supported tracer version (Setogit)
