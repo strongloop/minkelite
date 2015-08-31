@@ -21,7 +21,8 @@
     "url": "https://github.com/strongloop/minkelite/issues"
   },
   "scripts": {
-    "test": "tap test/test-api.js"
+    "test": "tap --bail --coverage --coverage-report=cobertura --timeout=200 test/test-api.js",
+    "posttest": "nyc report --reporter=lcov && nyc report"
   },
   "dependencies": {
     "md5": "~2.0.0",
@@ -36,6 +37,7 @@
     "xtend": "~4.0.0"
   },
   "devDependencies": {
+    "nyc": "^3.0.0",
     "tap": "~0.7.0"
   },
   "license": {
