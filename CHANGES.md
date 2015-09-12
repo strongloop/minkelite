@@ -1,3 +1,20 @@
+2015-09-12, Version 1.2.4
+=========================
+
+ * ensure tarballs aren't included in publish (Ryan Graham)
+
+ * deps: use official sqlite3 release (Ryan Graham)
+
+ * deps: depend on node-sqlite3 from git (Ryan Graham)
+
+ * Enable unit test code coverage report generation (Tetsuo Seto)
+
+
+2015-08-26, Version 1.2.3
+=========================
+
+
+
 2015-08-21, Version 1.2.2
 =========================
 
