@@ -40,10 +40,7 @@
     "nyc": "^3.0.0",
     "tap": "~0.7.0"
   },
-  "license": {
-    "name": "StrongLoop",
-    "url": "https://github.com/strongloop/minkelite/blob/master/LICENSE"
-  },
+  "license": "SEE LICENSE IN LICENSE.md",
   "engine": {
     "node": ">=0.10.0"
   }
