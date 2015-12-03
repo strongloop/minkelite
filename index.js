@@ -40,13 +40,14 @@ module.exports = MinkeLite
 var CONFIG_JSON = require('./minkelite_config.json')
 var EventEmitter = require('events').EventEmitter
 var ago = require("ago")
+var assert = require("assert")
 var async = require("async")
 var bodyParser = require('body-parser')
 var debug = require('debug')('minkelite');
 var express = require('express')
 var fs = require("fs")
 var md5 = require('md5')
-var sqlite3 = require("sqlite3")
+var sqlite3
 var statslite = require("stats-lite")
 var util = require('util')
 var xtend = require('xtend')
@@ -73,31 +74,31 @@ var SYSTEM_TABLES = {
   "system_tables":[
     {
       "name": "raw_trace",
-      "columns": "pfkey TEXT PRIMARY KEY, ts INTEGER, trace BLOB"
+      "columns": "pfkey TEXT PRIMARY KEY, ts BIGINT, trace BLOB"
     }
     ,{
       "name": "raw_memory_pieces",
-      "columns": "pfkey TEXT PRIMARY KEY, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, p_mr INTEGER, p_mt INTEGER, p_mu INTEGER, p_ut REAL, s_la REAL"
+      "columns": "pfkey TEXT PRIMARY KEY, ts BIGINT, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, p_mr BIGINT, p_mt BIGINT, p_mu BIGINT, p_ut DOUBLE PRECISION, s_la REAL"
     }
     ,{
       "name": "meta_transactions",
-      "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts INTEGER, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
+      "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts BIGINT, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
     }
     ,{
       "name": "meta_custom_transactions",
-      "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts INTEGER, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
+      "columns": "act_hour_host_pid TEXT PRIMARY KEY, ts BIGINT, act TEXT, hour INTEGER, host TEXT, pid INTEGER, trans BLOB"
     }
     ,{
       "name": "raw_transactions",
-      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
+      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts BIGINT, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
     }
     ,{
       "name": "raw_custom_transactions",
-      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts INTEGER, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
+      "columns": "act_tran_ts_host_pid TEXT PRIMARY KEY, pfkey TEXT, tran TEXT, ts BIGINT, act TEXT, host TEXT, pid INTEGER, lm_a INTEGER, max INTEGER, mean REAL, min INTEGER, n INTEGER, sd REAL"
     }
     ,{
       "name": "model_mean_sd",
-      "columns": "act_host_pid TEXT PRIMARY KEY, ts INTEGER, p_mu_mean REAL, p_mu_sd REAL, s_la_mean REAL, s_la_sd REAL"
+      "columns": "act_host_pid TEXT PRIMARY KEY, ts BIGINT, p_mu_mean DOUBLE PRECISION, p_mu_sd DOUBLE PRECISION, s_la_mean REAL, s_la_sd REAL"
     }
   ]
 }
@@ -109,14 +110,25 @@ function MinkeLite(config) {
   this.config = xtend(MY_CONFIG, CONFIG_JSON)
 
   if( this.config.dev_mode==null ) this.config.dev_mode = false
-  if( this.config.in_memory==null ) this.config.in_memory = true
 
-  this.config.dir_path = this.config.dir_path || "./"
-  this.config.db_name = this.config.in_memory ? ":memory:" : (
-    this.config.db_name || '' );
+  if(this.config.postgresqlClient) {
+    sqlite3 = null;
+    this._init_db = this._init_postgresql_db;
+    this.postgresqlClient = this.config.postgresqlClient;
+    this.config.sqlite3_verbose = null;
+    this.config.in_memory = false;
+    this.config.db_name = '';
+  } else {
+    sqlite3 = require("sqlite3")
+    this._init_db = this._init_sqlite3_db;
+    if( this.config.in_memory==null ) this.config.in_memory = true
+    this.config.dir_path = this.config.dir_path || "./"
+    this.config.db_name = this.config.in_memory ? ":memory:" : (
+      this.config.db_name || '' );
+    if( this.config.sqlite3_verbose )
+      sqlite3 = sqlite3.verbose();
+  }
 
-  if( this.config.sqlite3_verbose )
-    sqlite3 = sqlite3.verbose();
   if( this.config.stale_minutes==null )
     this.config.stale_minutes = 1*24*60
   if( this.config.chart_minutes==null )
@@ -184,7 +196,42 @@ MinkeLite.prototype.startServer = function () {
   this.express_server = this.express_app.listen(this.config.server_port)
 }
 
-MinkeLite.prototype._init_db = function () {
+function initTables(self) {
+  async.each(self.config.system_tables, function(tbl, next) {
+    if(self.postgresqlClient) {
+      tbl.columns = tbl.columns.replace('BLOB', 'BYTEA');
+      var query = util.format("CREATE TABLE IF NOT EXISTS %s (%s) WITHOUT OIDS",
+        tbl.name, tbl.columns)
+      self.postgresqlClient.query(query, function(err) {
+        debug('init: %s => %j', query, err);
+        next(err)
+      });
+    } else {
+      var query = util.format("CREATE TABLE %s (%s) WITHOUT ROWID",
+        tbl.name, tbl.columns)
+      self.db.run(query, function(err) {
+        debug('init: %s => %j', query, err);
+        next(err)
+      });
+    }
+  }, function(err) {
+    self.db_being_initialized = false
+    if (err)
+      self.emit('error', err) // FIXME(sam) pm must listen for this
+    else {
+      self.emit('ready');
+      self.db_exists = true;
+    }
+  })
+}
+
+MinkeLite.prototype._init_postgresql_db = function () {
+  this.db = null;
+  this.db_exists = true;
+  initTables(this);
+}
+
+MinkeLite.prototype._init_sqlite3_db = function () {
   this.db_being_initialized = false
   this.db_path = this.config.in_memory ? this.config.db_name :
     this.config.db_name=='' ? '' : this.config.dir_path+this.config.db_name
@@ -210,22 +257,7 @@ MinkeLite.prototype._init_db = function () {
   this.db_being_initialized = true
   var self = this;
   this.db.on('open', function() {
-    async.each(self.config.system_tables, function(tbl, next) {
-      var query = util.format("CREATE TABLE %s (%s) WITHOUT ROWID",
-        tbl.name, tbl.columns)
-      self.db.run(query, function(err) {
-        debug('init: %s => %j', query, err);
-        next(err)
-      });
-    }, function(err) {
-      self.db_being_initialized = false
-      if (err)
-        self.emit('error', err) // FIXME(sam) pm must listen for this
-      else {
-        self.emit('ready')
-        self.db_exists = true
-      }
-    })
+   initTables(self);
   });
 }
 
@@ -303,29 +335,55 @@ MinkeLite.prototype.getRawPieces = function (pfkey, uncompress, callback) {
   debug("get_raw_pieces called with uncompress %j for pfkey %j",
         uncompress, pfkey)
   var query = util.format("SELECT trace FROM raw_trace WHERE pfkey='%s'", pfkey)
-  this.db.get(query, function(err, row) {
-    if (err) {
-      debug('query %s => %j', query, err);
-      return callback(null);
-    }
-    var traceCompressed = (row && row.trace) ? row.trace : null
-    if(traceCompressed == null) {
-      debug('query %s => no row.trace', query);
-      return callback(null);
-    }
-    if (uncompress) {
-      zlib.unzip(traceCompressed, function(zlibErr, buf) {
-        if (zlibErr) {
-          callback(null)
-        } else {
-          var traceStr = buf.toString('utf-8');
-          callback(traceStr)
-        }
-      })
-    } else {
-      callback(traceCompressed)
-    }
-  })
+  if (this.postgresqlClient) {
+    this.postgresqlClient.query(query, function(err, result) {
+      if (err) {
+        debug('query %s => %j', query, err);
+        return callback(null);
+      }
+      var traceCompressed = (result && result.rows && result.rows.length > 0) ? result.rows[0].trace : null
+      if(traceCompressed == null) {
+        debug('query %s => no row.trace', query);
+        return callback(null);
+      }
+      if (uncompress) {
+        zlib.unzip(traceCompressed, function(zlibErr, buf) {
+          if (zlibErr) {
+            callback(null)
+          } else {
+            var traceStr = buf.toString('utf-8');
+            callback(traceStr)
+          }
+        })
+      } else {
+        callback(traceCompressed)
+      }
+    })
+  } else {
+    this.db.get(query, function(err, row) {
+      if (err) {
+        debug('query %s => %j', query, err);
+        return callback(null);
+      }
+      var traceCompressed = (row && row.trace) ? row.trace : null
+      if(traceCompressed == null) {
+        debug('query %s => no row.trace', query);
+        return callback(null);
+      }
+      if (uncompress) {
+        zlib.unzip(traceCompressed, function(zlibErr, buf) {
+          if (zlibErr) {
+            callback(null)
+          } else {
+            var traceStr = buf.toString('utf-8');
+            callback(traceStr)
+          }
+        })
+      } else {
+        callback(traceCompressed)
+      }
+    })
+  }
 }
 
 function getHostPidListRoute(self,req,res){
@@ -351,6 +409,7 @@ MinkeLite.prototype.getHostPidList = function (act,callback){
   DATA["hosts"] = []
 
   function getRowsHostPidList(err, rows){
+    if (this) rows = rows.rows;
     if (err) {
       console.log("ERROR:",err)
     }
@@ -383,10 +442,11 @@ MinkeLite.prototype.getHostPidList = function (act,callback){
 
   var chartTime = ago(self.config.chart_minutes, "minutes").toString()
   var query = util.format(
-    "SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s)",
+    "SELECT DISTINCT host,pid FROM (SELECT host,pid FROM raw_memory_pieces WHERE act='%s' AND ts > %s) AS X",
     act, chartTime)
 
-  db.all(query, getRowsHostPidList)
+  if (this.postgresqlClient) this.postgresqlClient.query(query, getRowsHostPidList.bind(true))
+  else db.all(query, getRowsHostPidList.bind(false))
 }
 
 function getRawMemoryPiecesRoute(self,req,res){
@@ -415,6 +475,7 @@ MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
   DATA["hosts"] = {}
 
   function getRowsRawMemoryPieces(err, rows){
+    if (this) rows = rows.rows;
     if (err) {
       console.log("ERROR:",err)
     }
@@ -468,7 +529,8 @@ MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
   } else {
     query = baseQuery1+baseQuery2
   }
-  db.all(query,getRowsRawMemoryPieces)
+  if (self.postgresqlClient) self.postgresqlClient.query(query, getRowsRawMemoryPieces.bind(true)) 
+  else db.all(query,getRowsRawMemoryPieces.bind(false))
 }
 
 function getMetaTransactionsRoute(self,req,res){
@@ -509,6 +571,7 @@ MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
   DATA["hosts"] = {}
 
   function getRowsMetaTransactions(err, rows){
+    if (this) rows = rows.rows;
     if (err){console.log("ERROR:",err)}
     else if ( rows ){
       for (var i in rows){
@@ -558,7 +621,8 @@ MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
   } else {
     query = baseQuery
   }
-  db.all(query,getRowsMetaTransactions)
+  if (self.postgresqlClient) self.postgresqlClient.query(query, getRowsMetaTransactions.bind(true))
+  else db.all(query,getRowsMetaTransactions.bind(false))
 }
 
 function getTransactionRoute(self,req,res){
@@ -585,6 +649,7 @@ MinkeLite.prototype.getTransaction = function (act,tran,host,pid,callback){
   DATA["hosts"] = {}
 
   function getRowsTransactions(err, rows){
+    if (this) rows = rows.rows;
     if (err){console.log("ERROR:",err)}
     else if ( rows ){
       for (var i in rows){
@@ -635,7 +700,8 @@ MinkeLite.prototype.getTransaction = function (act,tran,host,pid,callback){
   } else {
     query = baseQuery1+baseQuery2
   }
-  db.all(query,getRowsTransactions)
+  if (self.postgresqlClient) self.postgresqlClient.query(query, getRowsTransactions.bind(true))
+  else db.all(query,getRowsTransactions.bind(false))
 }
 
 function postRawPiecesRoute(self,req,res){
@@ -689,7 +755,7 @@ function populateMinkeTables(self, act, trace, callback){
   debug('populateMinkeTables pfKeys[1]=%j', pfkeys[1])
   var ts = trace.metadata.timestamp
   if( self.config.dev_mode ) ts = Date.now()
-  async.parallel([
+  async.series([
     function(async_cb){
       populateRawTraceTable(self, act, trace, pfkey, ts, async_cb)
       if ( debug.enabled ) self._read_all_records("raw_trace", false)
@@ -748,20 +814,48 @@ function populateRawTraceTable(self, act, trace, pfkey, ts, cb){
   ],function(err,buf){
     if( err ){cb(err);return}
     var db = self.db
-    var stmt = db.prepare("INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($pfkey,$ts,$trace)")
-    var params = {}
-    params.$pfkey = pfkey
-    params.$ts = ts
-    params.$trace = buf
-    try {stmt.run(params)} catch (e){err = true}
+    var stmt = self.postgresqlClient ? null :
+      db.prepare("INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($pfkey,$ts,$trace)")
+    try {
+      if (stmt) {
+        var params = {}
+        params.$pfkey = pfkey
+        params.$ts = ts
+        params.$trace = buf
+        stmt.run(params)
+      } else {
+        var params = [
+          pfkey,
+          ts,
+          buf
+        ]
+        self.postgresqlClient.query({
+        name: 'populateRawTraceTable',
+        text: 'INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($1,$2,$3)',
+        values: params
+        });
+      }
+    } catch (e){err = true}
     if ( !err && self.config.dev_mode ){
       for (var i = 0; i < EXTRA_WRITE_COUNT_IN_DEVMODE; i++) {
         var parts = pfkey.split($$$)
-        params.$pfkey = parts[0]+$$$+md5((new Date()).toString()+Math.random().toString()+parts[1])
-      try {stmt.run(params)} catch (e){err = true;break}
+        try {
+          var myPfkey = parts[0]+$$$+md5((new Date()).toString()+Math.random().toString()+parts[1])
+          if (stmt) {
+            params.$pfkey = myPfkey
+            stmt.run(params)
+          } else {
+            params[0] = myPfkey
+            self.postgresqlClient.query({
+              name: 'populateRawTraceTable',
+              text: 'INSERT INTO raw_trace(pfkey,ts,trace) VALUES ($1,$2,$3)',
+              values: params
+            });
+          };
+        } catch (e){err = true;break}
       }
     }
-    stmt.finalize()
+    if (stmt) stmt.finalize()
     cb(err)
   })
 }
@@ -785,28 +879,54 @@ function populateRawMemoryPieces(self, act, trace, pfkey, ts, cb){
     function(async_cb){
       if ( self.config.stats_interval_seconds > 0 ) {
         var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
-        db.get(query, function(err,row){async_cb(null,row)})
+        if (self.postgresqlClient) self.postgresqlClient.query(query, function(err,result){
+          var row = (result && result.rows && result.rows.length > 0) ? result.rows[0] : null;
+          async_cb(null,row)})
+        else db.get(query, function(err,row){async_cb(null,row)})
       } else {async_cb(null,null)}
     }
   ],function(err,stats_mean_sd){
     if( err ){cb(err);return}
-    var stmt = db.prepare("INSERT INTO raw_memory_pieces \
+    var stmt = self.postgresqlClient ? null : db.prepare("INSERT INTO raw_memory_pieces \
       ( pfkey, ts, act, host, pid, lm_a, p_mr, p_mt, p_mu, p_ut, s_la) VALUES \
       ($pfkey,$ts,$act,$host,$pid,$lm_a,$p_mr,$p_mt,$p_mu,$p_ut,$s_la)")
-    var params = {}
-    params.$pfkey = pfkey
-    params.$ts = ts
-    params.$act = act
-    params.$host = host
-    params.$pid = pid
-    params.$p_mr = trace.monitoring.process_info.memory.rss
-    params.$p_mt = trace.monitoring.process_info.memory.heapTotal
-    params.$p_mu = trace.monitoring.process_info.memory.heapUsed
-    params.$p_ut = trace.monitoring.process_info.uptime
-    params.$s_la = trace.monitoring.system_info.loadavg["1m"]
-    params.$lm_a = getLMa(stats_mean_sd, trace)
-    stmt.run(params)
-    stmt.finalize()
+    if (stmt) {
+      var params = {}
+      params.$pfkey = pfkey
+      params.$ts = ts
+      params.$act = act
+      params.$host = host
+      params.$pid = pid
+      params.$lm_a = getLMa(stats_mean_sd, trace)
+      params.$p_mr = trace.monitoring.process_info.memory.rss
+      params.$p_mt = trace.monitoring.process_info.memory.heapTotal
+      params.$p_mu = trace.monitoring.process_info.memory.heapUsed
+      params.$p_ut = trace.monitoring.process_info.uptime
+      params.$s_la = trace.monitoring.system_info.loadavg["1m"]
+      stmt.run(params)
+      stmt.finalize()
+    } else {
+      var params = [
+        pfkey,
+        ts,
+        act,
+        host,
+        pid,
+        getLMa(stats_mean_sd, trace),
+        trace.monitoring.process_info.memory.rss,
+        trace.monitoring.process_info.memory.heapTotal,
+        trace.monitoring.process_info.memory.heapUsed,
+        trace.monitoring.process_info.uptime,
+        trace.monitoring.system_info.loadavg["1m"]
+      ];
+      self.postgresqlClient.query({
+        name: 'populateRawMemoryPieces',
+        text: 'INSERT INTO raw_memory_pieces \
+          ( pfkey, ts, act, host, pid, lm_a, p_mr, p_mt, p_mu, p_ut, s_la) VALUES \
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        values: params
+      });
+    }
     cb(err)
   })
 }
@@ -835,11 +955,16 @@ function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta
   async.waterfall([
     function(async_cb){
       var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
-      db.get(query, function(err,row){async_cb(null,row)})
+      if (self.postgresqlClient) {
+        self.postgresqlClient.query(query, function(err, result) {
+          var row = (result && result.rows && result.rows.length > 0) ? result.rows[0] : null;
+          async_cb(null, row);
+        })
+      } else db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
     if( err ){cb(err);return}
-    var stmt = db.prepare("INSERT INTO raw_custom_transactions \
+    var stmt = self.postgresqlClient ? null : db.prepare("INSERT INTO raw_custom_transactions \
       ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
       ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
     var params = {}
@@ -862,9 +987,34 @@ function populateRawCustomTransactions(self, act, trace, pfkey, ts, populateMeta
       params.$min = stats.min
       params.$n = stats.n
       params.$sd = stats.standard_deviation
-      stmt.run(params)
+      if (stmt) {
+        stmt.run(params)
+      } else {
+        var paramArray= [
+          params.$act_tran_ts_host_pid,
+          params.$pfkey,
+          params.$ts,
+          params.$act,
+          params.$host,
+          params.$pid,
+          params.$tran,
+          params.$lm_a,
+          params.$max,
+          params.$mean,
+          params.$min,
+          params.$n,
+          params.$sd
+        ];
+        self.postgresqlClient.query({
+          name: 'populateRawCustomTransactions',
+          text: 'INSERT INTO raw_custom_transactions \
+            ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+          values: params
+        })
+      }
     }
-    stmt.finalize()
+    if (stmt) stmt.finalize()
     populateMeta(self, act, trace, pfkey, ts, cb)
   })
 }
@@ -881,11 +1031,16 @@ function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta, cb){
   async.waterfall([
     function(async_cb){
       var query = util.format("SELECT act_host_pid,p_mu_mean,p_mu_sd,s_la_mean,s_la_sd FROM model_mean_sd WHERE act_host_pid='%s'", act_host_pid)
-      db.get(query, function(err,row){async_cb(null,row)})
+      if (self.postgresqlClient) {
+        self.postgresqlClient.query(query, function(err, result) {
+          var row = (result && result.rows && result.rows.length > 0) ? result.rows[0] : null;
+          async_cb(null, row);
+        })
+      } else db.get(query, function(err,row){async_cb(null,row)})
     }
   ],function(err,stats_mean_sd){
     if( err ){cb(err);return}
-    var stmt = db.prepare("INSERT INTO raw_transactions \
+    var stmt = self.postgresqlClient ? null : db.prepare("INSERT INTO raw_transactions \
       ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
       ($act_tran_ts_host_pid,$pfkey,$ts,$act,$host,$pid,$tran,$lm_a,$max,$mean,$min,$n,$sd)")
     var params = {}
@@ -906,9 +1061,35 @@ function populateRawTransactions(self, act, trace, pfkey, ts, populateMeta, cb){
       params.$min = stats.min
       params.$n = stats.n
       params.$sd = stats.standard_deviation
-      stmt.run(params)
+      if (stmt) {
+        stmt.run(params)
+      } else {
+        var paramArray= [
+          params.$act_tran_ts_host_pid,
+          params.$pfkey,
+          params.$ts,
+          params.$act,
+          params.$host,
+          params.$pid,
+          params.$tran,
+          params.$lm_a,
+          params.$max,
+          params.$mean,
+          params.$min,
+          params.$n,
+          params.$sd
+        ];
+        assert(paramArray.length === Object.keys(params).length);
+        self.postgresqlClient.query({
+          name: 'populateRawTransactions',
+          text: 'INSERT INTO raw_transactions \
+            ( act_tran_ts_host_pid, pfkey, ts, act, host, pid, tran, lm_a, max, mean, min, n, sd) VALUES \
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+          values: paramArray
+        })
+      }
     }
-    stmt.finalize()
+    if (stmt) stmt.finalize()
     populateMeta(self, act, trace, pfkey, ts, cb)
   })
 }
@@ -933,6 +1114,7 @@ function extractDuration(numericStr, cutOffTime){
 }
 
 function decomposeTransBlob(transBlob){
+  if (typeof transBlob !== 'string') transBlob = transBlob.toString();
   var transArray =  []
   var trans = transBlob.split($$$)
   for(var i in trans){
@@ -1007,6 +1189,7 @@ function sortTransArrayByName(transArray){
   })
 }
 
+// TO-DO: Make populateMetaCustomTransactions compatible with populateMetaTransactions
 function populateMetaCustomTransactions(self, act, trace, pfkey, ts, cb){
   if ( !trace.monitoring || !trace.monitoring.custom_stats || Object.keys(trace.monitoring.custom_stats).length==0 ){
     cb(null)
@@ -1018,21 +1201,66 @@ function populateMetaCustomTransactions(self, act, trace, pfkey, ts, cb){
   var pid = trace.metadata.pid
   var act_hour_host_pid = act+$$$+hour.toString()+$$$+host+$$$+pid.toString()
   var queryA = util.format("SELECT trans FROM meta_custom_transactions WHERE act_hour_host_pid='%s'", act_hour_host_pid)
-  var queryB ="INSERT OR REPLACE INTO meta_custom_transactions \
+  var queryB1 = "INSERT OR REPLACE INTO meta_custom_transactions \
     ( act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
-    ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)"
-  var params = {}
-  params.$act_hour_host_pid = act_hour_host_pid
-  params.$act = act
-  params.$ts = ts
-  params.$hour = hour
-  params.$host = host
-  params.$pid = pid
+    ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)";
   debug("INSERT OR REPLACE meta_custom_transactions")
-  db.serialize()
-  var stmt = db.prepare(queryB)
-  db.get(queryA, function(err,row){
+  if (db) db.serialize()
+  var stmt = self.postgresqlClient ? null : db.prepare(queryB1)
+  if(self.postgresqlClient) self.postgresqlClient.query(queryA, function(err, result){
     if( err ){db.parallelize();cb(err);return}
+    var row = (result && result.rows && result.rows.length > 0) ? result.rows[0] : null;
+    var transArray = []
+    if( row ) transArray = decomposeTransBlob(row.trans)
+    // for (var tran in trace.transactions.transactions){ // EDISON
+    for (var tran in trace.monitoring.custom_stats){
+      if( trace.monitoring.custom_stats[tran].length==0 ) continue // EDISON
+      var value = getCustomStats(trace.monitoring.custom_stats[tran]).max
+      if ( ! isInTransArray(tran,value,transArray) ) transArray.push([tran,value])
+    }
+
+    if( transArray.length>0 ) { // EDISON
+      if (stmt) {
+        var params = {}
+        params.$act_hour_host_pid = act_hour_host_pid
+        params.$act = act
+        params.$ts = ts
+        params.$hour = hour
+        params.$host = host
+        params.$pid = pid
+        params.$trans = assembleTransBlob(transArray)
+        stmt.run(params)
+        stmt.finalize()
+      } else {
+        var queryB2 = "INSERT INTO meta_custom_transactions \
+          (act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
+          ($1,$2,$3,$4,$5,$6,$7)";
+        // ON CONFLICT UPDATE WHERE act_hour_host_pid=$1";
+        var params = [
+          act_hour_host_pid,
+          act,
+          ts,
+          hour,
+          host,
+          pid,
+          assembleTransBlob(transArray)
+        ];
+        self.postgresqlClient.query({
+          name: 'populateMetaCustomTransactions',
+          text: queryB2,
+          values: params
+        })
+      }
+    }
+    db.parallelize()
+    freeTransArray(transArray)
+    delete params.$trans
+    debug(" for",act_hour_host_pid,"... done.")
+    cb(err)
+
+  })
+  else  db.get(queryA, function(err,row){
+    if( err ){if (db) db.parallelize();cb(err);return}
     var transArray = []
     if( row ) transArray = decomposeTransBlob(row.trans)
     // for (var tran in trace.transactions.transactions){ // EDISON
@@ -1044,10 +1272,18 @@ function populateMetaCustomTransactions(self, act, trace, pfkey, ts, cb){
 
     if( transArray.length>0 ) { // EDISON
       params.$trans = assembleTransBlob(transArray)
-      stmt.run(params)
+      if (stmt) {
+        stmt.run(params)
+        stmt.finalize()
+      } else {
+        self.postgresqlClient.query({
+          name: 'populateMetaCustomTransactions',
+          text: queryB,
+          values: params
+        })
+      }
     }
-    stmt.finalize()
-    db.parallelize()
+    if (db) db.parallelize()
     freeTransArray(transArray)
     delete params.$trans
     debug(" for",act_hour_host_pid,"... done.")
@@ -1066,53 +1302,103 @@ function populateMetaTransactions(self, act, trace, pfkey, ts, cb){
   var pid = trace.metadata.pid
   var act_hour_host_pid = act+$$$+hour.toString()+$$$+host+$$$+pid.toString()
   var queryA = util.format("SELECT trans FROM meta_transactions WHERE act_hour_host_pid='%s'", act_hour_host_pid)
-  var queryB ="INSERT OR REPLACE INTO meta_transactions \
-    ( act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
-    ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)"
-  var params = {}
-  params.$act_hour_host_pid = act_hour_host_pid
-  params.$act = act
-  params.$ts = ts
-  params.$hour = hour
-  params.$host = host
-  params.$pid = pid
   debug("INSERT OR REPLACE meta_transactions")
-  db.serialize()
-  var stmt = db.prepare(queryB)
-  db.get(queryA, function(err,row){
-    if( err ){db.parallelize();cb(err);return}
-    var transArray = []
-    if( row ) transArray = decomposeTransBlob(row.trans)
-    for (var tran in trace.transactions.transactions){
-      var value = trace.transactions.transactions[tran].subset_stats.max
-      if ( ! isInTransArray(tran,value,transArray) ) transArray.push([tran,value])
-    }
-    params.$trans = assembleTransBlob(transArray)
-    stmt.run(params)
-    stmt.finalize()
-    db.parallelize()
-    freeTransArray(transArray)
-    delete params.$trans
-    debug(" for",act_hour_host_pid,"... done.")
-    cb(err)
-  })
+  if(self.postgresqlClient) {
+    // The following transaction is atomic and either UPDATE or INSERT is no-op.
+    // It's an slternative way to UPSERT which is introduced in PostgreSQL 9.5.
+    var queryB1a = "BEGIN;";
+    var queryB1b = "UPDATE meta_transactions SET act=$2, ts=$3, hour=$4, \
+      host=$5, pid=$6, trans=$7 WHERE act_hour_host_pid=$1;";
+    var queryB1c = "INSERT INTO meta_transactions \
+      (act_hour_host_pid, act, ts, hour, host, pid, trans) \
+      SELECT $1,$2,$3,$4,$5,$6,$7 WHERE NOT EXISTS \
+      (SELECT 1 FROM meta_transactions WHERE act_hour_host_pid=$1);";
+    var queryB1d = "COMMIT;";
+    var params = [act_hour_host_pid, act, ts, hour, host, pid];
+    self.postgresqlClient.query(queryA, function(err,result){
+      if( err ){cb(err);return}
+      var row = (result && result.rows && result.rows.length > 0) ? result.rows[0] : null;
+      var transArray = []
+      if( row ) transArray = decomposeTransBlob(row.trans)
+      for (var tran in trace.transactions.transactions){
+        var value = trace.transactions.transactions[tran].subset_stats.max
+        if ( ! isInTransArray(tran,value,transArray) ) transArray.push([tran,value])
+      }
+      params.push(assembleTransBlob(transArray));
+      self.postgresqlClient.query(queryB1a, function(err) {
+        self.postgresqlClient.query(queryB1b, params, function(err) {
+          self.postgresqlClient.query(queryB1c, params, function(err) {
+            self.postgresqlClient.query(queryB1d, function(err) {
+              freeTransArray(transArray)
+              delete params[params.length-1];
+              debug(" for",act_hour_host_pid,"... done.");
+              cb(err);
+            });
+          });
+        });
+      });
+    })
+  } else  {
+    db.serialize()
+    var queryB2 = "INSERT OR REPLACE INTO meta_transactions \
+      (act_hour_host_pid, act, ts, hour, host, pid, trans) VALUES \
+      ($act_hour_host_pid,$act,$ts,$hour,$host,$pid,$trans)"
+    var stmt = db.prepare(queryB2)
+    var params = {}
+    params.$act_hour_host_pid = act_hour_host_pid
+    params.$act = act
+    params.$ts = ts
+    params.$hour = hour
+    params.$host = host
+    params.$pid = pid
+    db.get(queryA, function(err,row){
+      if( err ){db.parallelize();cb(err);return}
+      var transArray = []
+      if( row ) transArray = decomposeTransBlob(row.trans)
+      for (var tran in trace.transactions.transactions){
+        var value = trace.transactions.transactions[tran].subset_stats.max
+        if ( ! isInTransArray(tran,value,transArray) ) transArray.push([tran,value])
+      }
+      params.$trans = assembleTransBlob(transArray)
+      stmt.run(params)
+      stmt.finalize()
+      db.parallelize()
+      freeTransArray(transArray)
+      delete params.$trans
+      debug(" for",act_hour_host_pid,"... done.")
+      cb(err)
+    })
+  }
 }
 
 MinkeLite.prototype._read_all_records = function (table, showContents) {
   // exitIfNotReady(this, "_read_all_records")
   var db = this.db
   var query = util.format("SELECT %s FROM %s", showContents ? "*" : "count(*)", table)
-  db.each(query, function(err,row){process.stdout.write(table+" :\t");printRow(err,row)})
+  if (this.postgresqlClient) {
+    var again = this.postgresqlClient.query(query);
+    again.on('row', function(err,row){process.stdout.write(table+" :\t");printRow(err,row)})
+  } else {
+    db.each(query, function(err,row){process.stdout.write(table+" :\t");printRow(err,row)})
+  }
 }
 
 MinkeLite.prototype._list_tables = function (callback) {
   // exitIfNotReady(this, "_list_tables")
   var db = this.db
-  var query = "SELECT name FROM sqlite_master WHERE type='table'"
-  db.all(query, function(err,rows){
+  var query = this.postgresqlClient ? 
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'" :
+    "SELECT name FROM sqlite_master WHERE type='table'"
+  if (this.postgresqlClient) this.postgresqlClient.query(query, function(err,result){
+    var rows = result.rows;
     var tableNames = []
     for (var i in rows){tableNames.push(rows[i].name)}
-    callback(err,tableNames)
+    callback(err,tableNames.slice(0))
+  })
+  else db.all(query, function(err,rows){
+    var tableNames = []
+    for (var i in rows){tableNames.push(rows[i].name)}
+    callback(err,tableNames.slice(0))
   })
 }
 
@@ -1122,7 +1408,8 @@ MinkeLite.prototype._delete_stale_records = function (tableName, value, unitStr)
   var tsThereshold = ago(value, unitStr)
   var query = util.format("DELETE FROM %s WHERE ts < %s", tableName, tsThereshold.toString())
   debug("DELETE FROM",tableName,'... done.')
-  db.run(query)
+  if (this.postgresqlClient) this.postgresqlClient.query(query)
+  else db.run(query)
 }
 
 function deleteAllStaleRecords () {
@@ -1146,6 +1433,8 @@ function populateStatsMeanSd(self, value, unitStr){
   }
 
   function readRowsRawMemoryPieces(err, rows){
+    var cb = this[0];
+    if (this[1]) rows = rows.rows;
     if (err){console.log("ERROR:",err)}
     else if (rows!=null){
       DATA["ts"] = Date.now()
@@ -1180,27 +1469,38 @@ function populateStatsMeanSd(self, value, unitStr){
         delete dp["s_la"]
       }
     }
-    this()
+    cb()
   }
 
   var tsThereshold = ago(value, unitStr)
-  var querySelect = util.format("SELECT act_host_pid FROM model_mean_sd WHERE act_host_pid = $act_host_pid AND ts > %s", tsThereshold)
-  var queryUpdate = "UPDATE model_mean_sd SET ts=$ts, \
-    p_mu_mean=$p_mu_mean,p_mu_sd=$p_mu_sd,s_la_mean=$s_la_mean,s_la_sd=$s_la_sd \
-    WHERE act_host_pid=$act_host_pid"
-  var queryInsert = "INSERT INTO model_mean_sd \
-    ( act_host_pid, ts, p_mu_mean, p_mu_sd, s_la_mean, s_la_sd ) VALUES \
-    ($act_host_pid,$ts,$p_mu_mean,$p_mu_sd,$s_la_mean,$s_la_sd )"
+  if (self.postgresqlClient) {
+    var querySelect = util.format("SELECT act_host_pid FROM model_mean_sd WHERE act_host_pid = $1 AND ts > %s", tsThereshold)
+    var queryUpdate = "UPDATE model_mean_sd SET ts=$2, \
+      p_mu_mean=$3,p_mu_sd=$4,s_la_mean=$5,s_la_sd=$6 \
+      WHERE act_host_pid=$1"
+    var queryInsert = "INSERT INTO model_mean_sd \
+      ( act_host_pid, ts, p_mu_mean, p_mu_sd, s_la_mean, s_la_sd ) VALUES \
+      ($1,$2,$3,$4,$5,$6)"
+  } else {
+    var querySelect = util.format("SELECT act_host_pid FROM model_mean_sd WHERE act_host_pid = $act_host_pid AND ts > %s", tsThereshold)
+    var queryUpdate = "UPDATE model_mean_sd SET ts=$ts, \
+      p_mu_mean=$p_mu_mean,p_mu_sd=$p_mu_sd,s_la_mean=$s_la_mean,s_la_sd=$s_la_sd \
+      WHERE act_host_pid=$act_host_pid"
+    var queryInsert = "INSERT INTO model_mean_sd \
+      ( act_host_pid, ts, p_mu_mean, p_mu_sd, s_la_mean, s_la_sd ) VALUES \
+      ($act_host_pid,$ts,$p_mu_mean,$p_mu_sd,$s_la_mean,$s_la_sd )"    
+  }
   async.series([
     function(cb){
       var query = util.format("SELECT act,host,pid,p_mu,s_la FROM raw_memory_pieces WHERE ts > %s", tsThereshold)
-      db.all(query,readRowsRawMemoryPieces.bind(cb))
+      if (self.postgresqlClient) self.postgresqlClient.query(query,readRowsRawMemoryPieces.bind([cb, true]))
+      else db.all(query,readRowsRawMemoryPieces.bind([cb, false]))
     }
   ],
   function(err,result){
-    var stmtSelect = db.prepare(querySelect)
-    var stmtUpdate = db.prepare(queryUpdate)
-    var stmtInsert = db.prepare(queryInsert)
+    var stmtSelect = self.postgresqlClient ? null : db.prepare(querySelect)
+    var stmtUpdate = self.postgresqlClient ? null : db.prepare(queryUpdate)
+    var stmtInsert = self.postgresqlClient ? null : db.prepare(queryInsert)
     var keys = Object.keys(DATA["points"])
     for (var i in keys){
       var act_host_pid = keys[i]
@@ -1210,15 +1510,30 @@ function populateStatsMeanSd(self, value, unitStr){
       async.waterfall([
         function(cb){cb(null,this)}.bind(asyncP)
         ,function(AP,cb){
-          var params = {}
-          params.$act_host_pid = AP.ahp
-          stmtSelect.get(params,function(err,row){
-            var found = false
-            if (err){console.log("ERROR:",err)}
-            else{found = (row!=null)}
-            AP.found = found
-            cb(null,AP)
-          })
+          if (stmtSelect) {
+            var params = {}
+            params.$act_host_pid = AP.ahp
+            stmtSelect.get(params,function(err,row){
+              var found = false
+              if (err){console.log("ERROR:",err)}
+              else{found = (row!=null)}
+              AP.found = found
+              cb(null,AP)
+            })
+          } else {
+            var params = [AP.ahp]
+            self.postgresqlClient.query({
+              name: 'populateStatsMeanSdS',
+              text: querySelect,
+              values: params
+            }, function(err,result){
+              var found = false
+              if (err){console.log("ERROR:",err)}
+              else{found = (result && result.rows && result.rows.length > 0)}
+              AP.found = found
+              cb(null,AP)
+            })
+          }
         }]
         ,function(err,AP){
           var stmt = null
@@ -1229,21 +1544,27 @@ function populateStatsMeanSd(self, value, unitStr){
             stmt = AP.stmtI
             debug("INSERT model_mean_sd")
           }
-          var params = {}
-          params.$act_host_pid = AP.ahp
-          params.$ts = AP.now
-          params.$p_mu_mean = AP.dPoint["p_mu_mean"]
-          params.$p_mu_sd = AP.dPoint["p_mu_sd"]
-          params.$s_la_mean = AP.dPoint["s_la_mean"]
-          params.$s_la_sd = AP.dPoint["s_la_sd"]
-          stmt.run(params,function(err){
-            debug(" for",this.ahp,"... done.")
-            if ( this.lastOne ){
-              this.stmtS.finalize()
-              this.stmtU.finalize()
-              this.stmtI.finalize()
-            }
-          }.bind(AP))
+          if (stmt) {
+            var params = {}
+            params.$act_host_pid = AP.ahp
+            params.$ts = AP.now
+            params.$p_mu_mean = AP.dPoint["p_mu_mean"]
+            params.$p_mu_sd = AP.dPoint["p_mu_sd"]
+            params.$s_la_mean = AP.dPoint["s_la_mean"]
+            params.$s_la_sd = AP.dPoint["s_la_sd"]
+            stmt.run(params,function(err){
+              debug(" for",this.ahp,"... done.")
+              if ( this.lastOne ){
+                this.stmtS.finalize()
+                this.stmtU.finalize()
+                this.stmtI.finalize()
+              }
+            }.bind(AP))
+          } else {
+            var params = [AP.ahp, AP.now, AP.dPoint["p_mu_mean"], AP.dPoint["p_mu_sd"],
+              AP.dPoint["s_la_mean"], AP.dPoint["s_la_sd"]]
+            self.postgresqlClient.query(AP.found ? queryUpdate : queryInsert, params)
+          }
         }
       )
     }
@@ -1315,6 +1636,7 @@ function getGMTDateTimeStr(ts){
     return s
   }
 
+  if (typeof ts === 'string') ts = parseInt(ts, 10);
   var dt = new Date(ts)
   var dtStr = dt.getUTCFullYear().toString()
   dtStr += '-'+zeroFill((dt.getUTCMonth()+1).toString())
@@ -1326,6 +1648,7 @@ function getGMTDateTimeStr(ts){
 }
 
 function getISODateTimeStr(ts){
+  if (typeof ts === 'string') ts = parseInt(ts, 10);
   var dt = new Date(ts)
   return dt.toISOString()
 }
