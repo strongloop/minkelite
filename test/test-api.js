@@ -1,8 +1,23 @@
 'use strict';
 
+var maybeSkipPostgres = process.env.POSTGRESQL_USER
+              ? false
+              : {skip: 'Incomplete PostgreSQL environment'};
+
 var async = require('async');
 var MinkeLite = require('../index');
 var tap = require('tap');
+var fmt = require('util').format;
+var pg = require('pg');
+var pgCredentials = process.env.POSTGRESQL_USER;
+if ((process.env.POSTGRESQL_PASSWORD || '').length > 0) {
+  pgCredentials += ':' + process.env.POSTGRESQL_PASSWORD;
+}
+var POSTGRESQL_PARAM = fmt('postgres://%s@%s:%d/template1',
+                           pgCredentials,
+                           process.env.POSTGRESQL_HOST || 'localhost',
+                           process.env.POSTGRESQL_PORT || 5432);
+var PG = null;
 
 var VERSION = "1.1.2";
 var ACT = "wfp:helloworld";
@@ -11,13 +26,6 @@ var HASHED_ACT = "4307e61e9cfc31889b371b0bae9d047d";
 var HOST = "ip-10-99-191-85";
 var PID = 17854;
 var TRANSACTION = "request GET http://localhost:8123/";
-
-tap.test('emits "ready" when ready', function(t) {
-  ML.on('ready', function() {
-    t.ok(true, 'sqlite3 DB is ready for writing');
-    t.end();
-  });
-});
 
 var LAST_ROUND = 10;
 var params = [
@@ -28,11 +36,37 @@ var params = [
   {testId: 'On-File/Anonymous',
      data: {'in_memory': false, 'db_name': ''}}
 ];
+if (!maybeSkipPostgres) {
+  PG = new pg.Client(POSTGRESQL_PARAM);
+  PG.connect();
+  params.push({
+    testId: 'On-File/PostgreSQL',
+    data: {'postgresqlClient': PG}
+  });
+}
+
+tap.test('Sqlite3 emits "ready" when ready', function(t) {
+  ML.on('ready', function() {
+    t.ok(true, 'sqlite3 DB are ready for writing');
+    t.end();
+  });
+});
+
+tap.test('Cleanup postgres table for testing', maybeSkipPostgres, function(t) {
+  var TABLES = ['raw_trace', 'raw_memory_pieces', 'meta_transactions', 'meta_custom_transactions',
+    'raw_transactions', 'raw_custom_transactions', 'model_mean_sd'];
+  TABLES.forEach(function(tbl){
+    PG.query(fmt('drop table if exists %s', tbl), function(err){
+      t.end();
+    });
+  });
+});
 
 tap.test('Sqlite3 Access Mode Test', function(t) {
   var trace2 = require('./helloworld2.json');
   async.eachSeries(params,
     function(param, each_cb) {
+      t.comment('**** ' + param.testId);
       var counter = 0;
       var ML2 = new MinkeLite(param.data);
       ML2.on('ready', function() {
@@ -76,16 +110,17 @@ trace.monitoring.statware.checktime = trace.metadata.timestamp;
 trace.transactions.end = trace.metadata.timestamp;
 trace.transactions.start = trace.transactions.end - 22130;
 
-var ML = new MinkeLite(params[0].data);
+var testMode = maybeSkipPostgres ? 0 : 3;
+var ML = new MinkeLite(params[testMode].data);
 
-tap.test('postRawPieces Test', function(t) {
+tap.test('postRawPieces Test with '+ params[testMode].testId, function(t) {
   ML.postRawPieces(VERSION,ACT,trace, function(err){
     t.ok( ! err,'postRawPieces writes the trace to the MinkeLite DB');
     t.end();
   });
 });
 
-tap.test('getHostPidList Test', function(t) {
+tap.test('getHostPidList Test with '+ params[testMode].testId, function(t) {
   ML.getHostPidList(ACT,function(data){
     t.ok(data!=null,"getHostPidList returns some data.");
     t.equal(data.act,ACT,"getHostPidList returns the correct act.");
@@ -97,7 +132,7 @@ tap.test('getHostPidList Test', function(t) {
   });
 });
 
-tap.test('getRawMemoryPieces Test', function(t) {
+tap.test('getRawMemoryPieces Test with '+ params[testMode].testId, function(t) {
   ML.getRawMemoryPieces(ACT,HOST,PID,function(data){
     t.ok(data!=null,"getRawMemoryPieces returns some data.");
     t.equal(data.act,ACT,"getRawMemoryPieces returns the correct act.");
@@ -108,14 +143,14 @@ tap.test('getRawMemoryPieces Test', function(t) {
   });
 });
 
-tap.test('getRawPieces Test 1', function(t) {
+tap.test('getRawPieces Test 1 with '+ params[testMode].testId, function(t) {
   ML.getRawPieces("fake_pfkey",true,function(data){
     t.ok(data==null,"getRawPieces returns null for undefined pfkey.");    
     t.end();
   });
 });
 
-tap.test('getRawPieces Test 2', function(t) {
+tap.test('getRawPieces Test 2 with '+ params[testMode].testId, function(t) {
   ML.getRawPieces(PFKEY,true,function(data){
     t.ok(data!=null,"getRawPieces returns some data.");
     var trace = null;
@@ -126,7 +161,7 @@ tap.test('getRawPieces Test 2', function(t) {
   });
 });
 
-tap.test('getMetaTransactions Test', function(t) {
+tap.test('getMetaTransactions Test with '+ params[testMode].testId, function(t) {
   ML.getMetaTransactions(ACT,HOST,PID,function(data,callback){
     t.ok(data!=null,"getMetaTransactions returns some data.");
     t.equal(data.act,ACT,"getMetaTransactions returns the correct act.");
@@ -137,7 +172,7 @@ tap.test('getMetaTransactions Test', function(t) {
   });
 });
 
-tap.test('getTransaction Test', function(t) {
+tap.test('getTransaction Test with '+ params[testMode].testId, function(t) {
   ML.getTransaction(ACT,TRANSACTION,HOST,PID,function(data){
     t.ok(data!=null,"getTransaction returns some data.");
     t.equal(data.act,ACT,"getTransaction returns the correct act.");
@@ -150,7 +185,7 @@ tap.test('getTransaction Test', function(t) {
   });
 });
 
-tap.test('_sort_db_transactions Test', function(t) {
+tap.test('_sort_db_transactions Test with '+ params[testMode].testId, function(t) {
   var input = [
     ['Redis query', 1],
     ['Redis query', 10],
@@ -204,8 +239,9 @@ tap.test('_sort_db_transactions Test', function(t) {
 });
 
 tap.test('shutdown', function(t) {
+  if (PG) PG.end();
   ML.shutdown(function(err) {
-    t.ifError(err, 'should shutdown cleanly');
+    t.ifError(err, 'ML should shutdown cleanly');
     t.end();
   });
 });
