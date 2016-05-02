@@ -45,7 +45,14 @@ if (!maybeSkipPostgres) {
   });
 }
 
-tap.test('Sqlite3 emits "ready" when ready', function(t) {
+var testMode = maybeSkipPostgres ? 0 : 3;
+var ML = new MinkeLite(params[testMode].data);
+var maybeSkipSqlite3 = ML.db
+              ? false
+              : {skip: 'Incomplete Sqlite3 environment'};
+
+tap.test('Sqlite3 emits "ready" when ready',
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.on('ready', function() {
     t.ok(true, 'sqlite3 DB are ready for writing');
     t.end();
@@ -62,7 +69,8 @@ tap.test('Cleanup postgres table for testing', maybeSkipPostgres, function(t) {
   });
 });
 
-tap.test('Sqlite3 Access Mode Test', function(t) {
+tap.test('Sqlite3 Access Mode Test',
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   var trace2 = require('./helloworld2.json');
   async.eachSeries(params,
     function(param, each_cb) {
@@ -110,17 +118,16 @@ trace.monitoring.statware.checktime = trace.metadata.timestamp;
 trace.transactions.end = trace.metadata.timestamp;
 trace.transactions.start = trace.transactions.end - 22130;
 
-var testMode = maybeSkipPostgres ? 0 : 3;
-var ML = new MinkeLite(params[testMode].data);
-
-tap.test('postRawPieces Test with '+ params[testMode].testId, function(t) {
+tap.test('postRawPieces Test with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.postRawPieces(VERSION,ACT,trace, function(err){
     t.ok( ! err,'postRawPieces writes the trace to the MinkeLite DB');
     t.end();
   });
 });
 
-tap.test('getHostPidList Test with '+ params[testMode].testId, function(t) {
+tap.test('getHostPidList Test with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.getHostPidList(ACT,function(data){
     t.ok(data!=null,"getHostPidList returns some data.");
     t.equal(data.act,ACT,"getHostPidList returns the correct act.");
@@ -132,7 +139,8 @@ tap.test('getHostPidList Test with '+ params[testMode].testId, function(t) {
   });
 });
 
-tap.test('getRawMemoryPieces Test with '+ params[testMode].testId, function(t) {
+tap.test('getRawMemoryPieces Test with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.getRawMemoryPieces(ACT,HOST,PID,function(data){
     t.ok(data!=null,"getRawMemoryPieces returns some data.");
     t.equal(data.act,ACT,"getRawMemoryPieces returns the correct act.");
@@ -143,14 +151,16 @@ tap.test('getRawMemoryPieces Test with '+ params[testMode].testId, function(t) {
   });
 });
 
-tap.test('getRawPieces Test 1 with '+ params[testMode].testId, function(t) {
+tap.test('getRawPieces Test 1 with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.getRawPieces("fake_pfkey",true,function(data){
     t.ok(data==null,"getRawPieces returns null for undefined pfkey.");    
     t.end();
   });
 });
 
-tap.test('getRawPieces Test 2 with '+ params[testMode].testId, function(t) {
+tap.test('getRawPieces Test 2 with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.getRawPieces(PFKEY,true,function(data){
     t.ok(data!=null,"getRawPieces returns some data.");
     var trace = null;
@@ -161,7 +171,8 @@ tap.test('getRawPieces Test 2 with '+ params[testMode].testId, function(t) {
   });
 });
 
-tap.test('getMetaTransactions Test with '+ params[testMode].testId, function(t) {
+tap.test('getMetaTransactions Test with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.getMetaTransactions(ACT,HOST,PID,function(data,callback){
     t.ok(data!=null,"getMetaTransactions returns some data.");
     t.equal(data.act,ACT,"getMetaTransactions returns the correct act.");
@@ -172,7 +183,8 @@ tap.test('getMetaTransactions Test with '+ params[testMode].testId, function(t) 
   });
 });
 
-tap.test('getTransaction Test with '+ params[testMode].testId, function(t) {
+tap.test('getTransaction Test with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   ML.getTransaction(ACT,TRANSACTION,HOST,PID,function(data){
     t.ok(data!=null,"getTransaction returns some data.");
     t.equal(data.act,ACT,"getTransaction returns the correct act.");
@@ -185,7 +197,8 @@ tap.test('getTransaction Test with '+ params[testMode].testId, function(t) {
   });
 });
 
-tap.test('_sort_db_transactions Test with '+ params[testMode].testId, function(t) {
+tap.test('_sort_db_transactions Test with '+ params[testMode].testId,
+  (maybeSkipPostgres && maybeSkipSqlite3), function(t) {
   var input = [
     ['Redis query', 1],
     ['Redis query', 10],

@@ -119,14 +119,23 @@ function MinkeLite(config) {
     this.config.in_memory = false;
     this.config.db_name = '';
   } else {
-    sqlite3 = require("sqlite3")
-    this._init_db = this._init_sqlite3_db;
-    if( this.config.in_memory==null ) this.config.in_memory = true
-    this.config.dir_path = this.config.dir_path || "./"
-    this.config.db_name = this.config.in_memory ? ":memory:" : (
-      this.config.db_name || '' );
-    if( this.config.sqlite3_verbose )
-      sqlite3 = sqlite3.verbose();
+    try {
+      sqlite3 = require("sqlite3")
+      if( this.config.sqlite3_verbose )
+        sqlite3 = sqlite3.verbose();
+      this._init_db = this._init_sqlite3_db;
+      if( this.config.in_memory==null ) this.config.in_memory = true
+      this.config.dir_path = this.config.dir_path || "./"
+      this.config.db_name = this.config.in_memory ? ":memory:" : (
+        this.config.db_name || '' );
+    } catch (e) {
+      sqlite3 = null;
+      this._init_db = function() {};
+      this.db = null;
+      this.config.sqlite3_verbose = null;
+      this.config.in_memory = false;
+      this.config.db_name = '';
+    }
   }
 
   if( this.config.stale_minutes==null )
@@ -197,6 +206,7 @@ MinkeLite.prototype.startServer = function () {
 }
 
 function initTables(self) {
+  if (!self.postgresqlClient && !self.db) return;
   async.each(self.config.system_tables, function(tbl, next) {
     if(self.postgresqlClient) {
       tbl.columns = tbl.columns.replace('BLOB', 'BYTEA');
@@ -328,6 +338,10 @@ function getRawPiecesRoute(self,req,res){
 MinkeLite.prototype.getRawPieces = function (pfkey, uncompress, callback) {
   // "/get_raw_pieces/:pfkey"
   // callback gets a string of either gzip compressed or uncompressed trace JSON
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   if(this.db_being_initialized){
     callback(null)
     return
@@ -397,6 +411,10 @@ function getHostPidListRoute(self,req,res){
 MinkeLite.prototype.getHostPidList = function (act,callback){
   // "/get_host_pid_list/:act
   // callback gets the DATA object
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   if(this.db_being_initialized){
     callback(null)
     return
@@ -463,6 +481,10 @@ function getRawMemoryPiecesRoute(self,req,res){
 MinkeLite.prototype.getRawMemoryPieces = function (act,host,pid,callback){
   // "/get_raw_memory_pieces/:act/:host/:pid"
   // callback gets the DATA object
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   if(this.db_being_initialized){
     callback(null)
     return
@@ -558,6 +580,10 @@ MinkeLite.prototype._sort_db_transactions = function (transArray) {
 MinkeLite.prototype.getMetaTransactions = function (act,host,pid,callback){
   // "/get_meta_transactions/:act/:host/:pid"
   // callback gets the DATA object and callback which must be called with DATA when done with DATA
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   if(this.db_being_initialized){
     callback(null,null)
     return
@@ -637,6 +663,10 @@ function getTransactionRoute(self,req,res){
 MinkeLite.prototype.getTransaction = function (act,tran,host,pid,callback){
   // "/get_transaction/:act/:transaction/:host/:pid"
   // callback gets the DATA object
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   if(this.db_being_initialized){
     callback(null)
     return
@@ -721,6 +751,10 @@ MinkeLite.prototype.postRawPieces = function (version,act,trace,callback){
   // "/post_raw_pieces/:version"
   // "/results/:version"
   // returns err: false when post succeded, err: true when failed
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   if(this.db_being_initialized){
     callback(true)
     return
@@ -741,6 +775,10 @@ MinkeLite.prototype.postRawPieces = function (version,act,trace,callback){
 
 MinkeLite.prototype._write_raw_trace = function (act, trace, callback) {
   // exitIfNotReady(this, "_write_raw_trace")
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   try {
     populateMinkeTables(this, act, trace, callback)
   } catch (e) {
@@ -1404,6 +1442,10 @@ MinkeLite.prototype._list_tables = function (callback) {
 
 MinkeLite.prototype._delete_stale_records = function (tableName, value, unitStr) {
   // exitIfNotReady(this, "_delete_stale_records")
+  if (!this.postgresqlClient && !this.db) {
+    callback(null)
+    return
+  }
   var db = this.db
   var tsThereshold = ago(value, unitStr)
   var query = util.format("DELETE FROM %s WHERE ts < %s", tableName, tsThereshold.toString())
