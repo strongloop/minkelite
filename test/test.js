@@ -1,3 +1,8 @@
+// Copyright IBM Corp. 2014. All Rights Reserved.
+// Node module: minkelite
+// US Government Users Restricted Rights - Use, duplication or disclosure
+// restricted by GSA ADP Schedule Contract with IBM Corp.
+
 var MINKELITE_PORT = 8102
 var HOST = "localhost"
 var ACT_KEY = "wfp:mf3d4p"
