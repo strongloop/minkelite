@@ -22,7 +22,9 @@
   },
   "scripts": {
     "test": "tap --bail --coverage --coverage-report=cobertura --timeout=200 test/test-api.js",
-    "posttest": "nyc report --reporter=lcov && nyc report"
+    "posttest": "nyc report --reporter=lcov && nyc report",
+    "snyk-protect": "snyk protect",
+    "prepublish": "npm run snyk-protect"
   },
   "dependencies": {
     "ago": "~1.0.0",
@@ -32,10 +34,11 @@
     "express": "~4.9.6",
     "md5": "~2.0.0",
     "pg": "^4.4.3",
-    "sqlite3": "^3.1.0",
+    "sqlite3": "^4.0.0",
     "stats-lite": "~1.0.3",
     "util": "~0.10.3",
-    "xtend": "~4.0.0"
+    "xtend": "~4.0.0",
+    "snyk": "^1.83.0"
   },
   "devDependencies": {
     "nyc": "^3.0.0",
@@ -44,5 +47,6 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "engine": {
     "node": ">=0.10.0"
-  }
+  },
+  "snyk": true
 }
